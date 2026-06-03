@@ -52,35 +52,7 @@ class CoursesScreen extends ConsumerWidget {
                   ),
                 ),
 
-                if (courses.isEmpty)
-                  SliverFillRemaining(
-                    child: Center(
-                      child: Transform.translate(
-                        offset: const Offset(0, -40),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                          Icon(Icons.auto_stories_outlined, size: 64, color: AppTheme.textSecondary.withOpacity(0.1)),
-                          const SizedBox(height: 16),
-                          const Text('No objectives found.', style: TextStyle(color: AppTheme.textSecondary, fontSize: 16, fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 24),
-                          ElevatedButton(
-                            onPressed: () => _showAddCourseDialog(context, ref),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                              textStyle: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5),
-                            ),
-                            child: const Text('Initialize First Subject'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                )
-                else
-                  isarAsync.when(
+                isarAsync.when(
                     data: (isar) => SliverPadding(
                       padding: EdgeInsets.symmetric(horizontal: hPad),
                       sliver: isTablet
