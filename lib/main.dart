@@ -21,7 +21,7 @@ class ExamCommandCenter extends ConsumerWidget {
     final router = ref.watch(routerProvider);
     
     return MaterialApp.router(
-      title: 'EXAM COMMAND CENTER',
+      title: 'Examinar',
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),
       themeMode: ThemeMode.system, // Will implement explicit theme switching later
