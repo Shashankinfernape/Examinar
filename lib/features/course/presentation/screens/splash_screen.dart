@@ -33,7 +33,7 @@ class _SplashScreenState extends State<SplashScreen> {
         )
         .animate(onPlay: (controller) => controller.repeat())
         // Start upright (matches the app logo perfectly), then spin
-        .rotate(begin: 0.0, end: 1.0, duration: 2000.ms, curve: Curves.easeInOutBack)
+        .rotate(begin: -0.125, end: 0.875, duration: 2000.ms, curve: Curves.easeInOutBack)
         .scale(begin: const Offset(1.0, 1.0), end: const Offset(1.2, 1.2), duration: 1000.ms, curve: Curves.easeInOut)
         .then()
         .scale(begin: const Offset(1.2, 1.2), end: const Offset(1.0, 1.0), duration: 1000.ms, curve: Curves.easeInOut),
