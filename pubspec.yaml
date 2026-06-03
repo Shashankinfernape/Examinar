@@ -114,4 +114,6 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/examinar_logo.png"
+  image_path: "assets/examinar_logo_ios.png"
+  adaptive_icon_background: "#121212"
+  adaptive_icon_foreground: "assets/examinar_logo_transparent.png"
