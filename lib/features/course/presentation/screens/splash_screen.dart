@@ -24,22 +24,22 @@ class _SplashScreenState extends State<SplashScreen>
       duration: const Duration(milliseconds: 2200),
     );
 
-    // Smooth spin: starts from the tilted position (-0.2 rad) and does a full rotation
-    _rotation = Tween<double>(begin: -0.2, end: -0.2 + (3.14159 * 2))
+    // Smooth spin: starts upright (0 rad) and does a full rotation
+    _rotation = Tween<double>(begin: 0.0, end: 3.14159 * 2)
         .animate(CurvedAnimation(
       parent: _controller,
       curve: const Interval(0.0, 0.75, curve: Curves.easeInOutCubic),
     ));
 
-    // Pulse: starts at 0.8, grows to 1.1 mid-spin, settles back to 1.0
+    // Pulse: starts at 1.0 (matching exact app icon scale), grows to 1.3 mid-spin, settles back to 1.0
     _scale = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween(begin: 0.8, end: 1.1)
+        tween: Tween(begin: 1.0, end: 1.3)
             .chain(CurveTween(curve: Curves.easeOut)),
         weight: 40,
       ),
       TweenSequenceItem(
-        tween: Tween(begin: 1.1, end: 1.0)
+        tween: Tween(begin: 1.3, end: 1.0)
             .chain(CurveTween(curve: Curves.easeInOut)),
         weight: 35,
       ),
@@ -89,10 +89,10 @@ class _SplashScreenState extends State<SplashScreen>
               ),
             );
           },
-          child: const Icon(
-            Icons.hourglass_bottom_rounded,
-            size: 100,
-            color: Colors.white,
+          child: Image.asset(
+            'assets/examinar_logo.png',
+            width: 250,
+            height: 250,
           ),
         ),
       ),
