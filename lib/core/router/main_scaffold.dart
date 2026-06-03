@@ -20,7 +20,7 @@ class MainScaffold extends ConsumerWidget {
       if (location.startsWith('/course/')) return 1;
       if (location.startsWith('/unit/')) return 1;
       if (location.startsWith('/question/')) return 1;
-      if (location == '/') return 0;
+      if (location == '/home') return 0;
       if (location == '/courses') return 1;
       if (location.startsWith('/planner')) return 2;
       if (location == '/profile') return 3;
@@ -202,7 +202,7 @@ class MainScaffold extends ConsumerWidget {
 
   void _navigate(BuildContext context, int index) {
     switch (index) {
-      case 0: context.go('/'); break;
+      case 0: context.go('/home'); break;
       case 1: context.go('/courses'); break;
       case 2: context.go('/planner'); break;
       case 3: context.go('/profile'); break;

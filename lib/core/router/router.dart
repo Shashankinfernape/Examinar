@@ -10,6 +10,7 @@ import '../../features/course/presentation/screens/revision_loop_screen.dart';
 import '../../features/planner/presentation/screens/planner_screen.dart';
 import '../../features/planner/presentation/screens/day_schedule_screen.dart';
 import '../../features/course/presentation/screens/profile_screen.dart';
+import '../../features/course/presentation/screens/splash_screen.dart';
 import 'main_scaffold.dart';
 
 part 'router.g.dart';
@@ -23,6 +24,10 @@ GoRouter router(RouterRef ref) {
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
     routes: [
+      GoRoute(
+        path: '/',
+        builder: (context, state) => const SplashScreen(),
+      ),
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
@@ -30,7 +35,7 @@ GoRouter router(RouterRef ref) {
         },
         routes: [
           GoRoute(
-            path: '/',
+            path: '/home',
             builder: (context, state) => const HomeScreen(),
           ),
           GoRoute(
