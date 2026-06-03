@@ -26,10 +26,13 @@ class _SplashScreenState extends State<SplashScreen> {
     return Scaffold(
       backgroundColor: AppTheme.black,
       body: Center(
-        child: Image.asset(
-          'assets/examinar_logo.png',
-          width: 140,
-          height: 140,
+        child: Transform.rotate(
+          angle: -0.2,
+          child: const Icon(
+            Icons.hourglass_bottom_rounded,
+            size: 100,
+            color: Colors.white,
+          ),
         )
         .animate(onPlay: (controller) => controller.repeat())
         .rotate(duration: 2000.ms, curve: Curves.easeInOutBack)
