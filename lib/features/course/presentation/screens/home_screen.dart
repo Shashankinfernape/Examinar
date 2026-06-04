@@ -119,6 +119,10 @@ FontWeight.w900, letterSpacing: 2.0),
     );
   }
 
+  String _cleanTitle(String title) {
+    return title.replaceAll(RegExp(r'[★☆]'), '').trim();
+  }
+
   Widget _buildTabletLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -134,7 +138,7 @@ FontWeight.w900, letterSpacing: 2.0),
                 child: _buildTodoList(pending, isar),
               ),
               if (completed.isNotEmpty) ...[
-                const SizedBox(height: 32),
+                const SizedBox(height: 16),
                 AnimatedSize(
                   duration: const Duration(milliseconds: 500),
                   curve: Curves.easeOutCubic,
@@ -163,14 +167,14 @@ FontWeight.w900, letterSpacing: 2.0),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildProgressWidget(total, comp),
-        const SizedBox(height: 32),
+        const SizedBox(height: 16),
         AnimatedSize(
           duration: const Duration(milliseconds: 500),
           curve: Curves.easeOutCubic,
           child: _buildTodoList(pending, isar),
         ),
         if (completed.isNotEmpty) ...[
-          const SizedBox(height: 32),
+          const SizedBox(height: 16),
           AnimatedSize(
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeOutCubic,
@@ -184,28 +188,35 @@ FontWeight.w900, letterSpacing: 2.0),
   Widget _buildProgressWidget(int total, int completed) {
     double progress = total == 0 ? 0 : completed / total;
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
+        gradient: LinearGradient(
+          colors: [AppTheme.cardSurface, AppTheme.cardSurface.withOpacity(0.8)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))
+        ],
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
       child: Row(
         children: [
           SizedBox(
-            width: 64,
-            height: 64,
+            width: 90,
+            height: 90,
             child: Stack(
               alignment: Alignment.center,
               children: [
                 CircularProgressIndicator(
                   value: progress,
-                  strokeWidth: 6,
+                  strokeWidth: 8,
                   backgroundColor: Colors.white10,
                   color: Colors.white,
                   strokeCap: StrokeCap.round,
                 ),
-                Text('${(progress * 100).toInt()}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+                Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24)),
               ]
             )
           ),
@@ -214,15 +225,15 @@ FontWeight.w900, letterSpacing: 2.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('DAILY PROGRESS', style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
-                const SizedBox(height: 8),
+                Text('DAILY PROGRESS', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+                const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8)
+                    borderRadius: BorderRadius.circular(12)
                   ),
-                  child: Text('$completed/$total Tasks', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                  child: Text('$completed/$total Tasks Completed', style: GoogleFonts.inter(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
                 )
               ]
             )
@@ -260,11 +271,11 @@ FontWeight.w900, letterSpacing: 2.0),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('TO-DO', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                Text('TO-DO', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -281,7 +292,7 @@ FontWeight.w900, letterSpacing: 2.0),
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: tasks.length,
-            separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10, indent: 90),
+            separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10, indent: 70),
             itemBuilder: (context, index) {
               final task = tasks[index];
               return Dismissible(
@@ -308,7 +319,7 @@ FontWeight.w900, letterSpacing: 2.0),
                   padding: const EdgeInsets.only(left: 32),
                   child: Text('COMPLETED', style: GoogleFonts.spaceGrotesk(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 2)),
                 ),
-                child: _buildTaskCard(task, false),
+                child: _buildTaskCard(task, false, isar),
               );
             }
           ),
@@ -328,7 +339,7 @@ FontWeight.w900, letterSpacing: 2.0),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
             child: Text('COMPLETED', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
           ),
           const Divider(height: 1, color: Colors.white10),
@@ -336,10 +347,10 @@ FontWeight.w900, letterSpacing: 2.0),
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: tasks.length,
-            separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10, indent: 90),
+            separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10, indent: 70),
             itemBuilder: (context, index) {
               final task = tasks[index];
-              return _buildTaskCard(task, true);
+              return _buildTaskCard(task, true, isar);
             }
           ),
         ],
@@ -347,12 +358,15 @@ FontWeight.w900, letterSpacing: 2.0),
     );
   }
 
-  Widget _buildTaskCard(PlannerEvent task, bool isCompleted) {
+  Widget _buildTaskCard(PlannerEvent task, bool isCompleted, Isar isar) {
     final now = DateTime.now();
     final isActive = !isCompleted && now.isAfter(task.startTime) && now.isBefore(task.endTime);
+    final questions = task.questionIds == null || task.questionIds!.isEmpty 
+        ? <Question>[] 
+        : isar.questions.getAllSync(task.questionIds!).whereType<Question>().toList();
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -363,7 +377,7 @@ FontWeight.w900, letterSpacing: 2.0),
               ? Center(
                   child: Text(
                     DateFormat('h:mm a').format(task.startTime),
-                    style: GoogleFonts.jetBrainsMono(color: Colors.white30, fontSize: 12, fontWeight: FontWeight.w700)
+                    style: GoogleFonts.jetBrainsMono(color: Colors.white30, fontSize: 13, fontWeight: FontWeight.w700)
                   ),
                 )
               : Column(
@@ -372,7 +386,7 @@ FontWeight.w900, letterSpacing: 2.0),
                   children: [
                     Text(
                       DateFormat('h:mm a').format(task.startTime),
-                      style: GoogleFonts.jetBrainsMono(color: isActive ? Colors.white : Colors.white70, fontSize: 12, fontWeight: FontWeight.w700)
+                      style: GoogleFonts.jetBrainsMono(color: isActive ? Colors.white : Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)
                     ),
                     AnimatedSize(
                       duration: const Duration(milliseconds: 500),
@@ -386,7 +400,7 @@ FontWeight.w900, letterSpacing: 2.0),
                     ),
                     Text(
                       DateFormat('h:mm a').format(task.endTime),
-                      style: GoogleFonts.jetBrainsMono(color: isActive ? Colors.white70 : Colors.white54, fontSize: 12, fontWeight: FontWeight.w700)
+                      style: GoogleFonts.jetBrainsMono(color: isActive ? Colors.white70 : Colors.white54, fontSize: 13, fontWeight: FontWeight.w700)
                     ),
                   ],
                 ),
@@ -395,27 +409,60 @@ FontWeight.w900, letterSpacing: 2.0),
           Container(
             width: 1.5,
             height: isCompleted ? 20 : 40,
-            margin: const EdgeInsets.symmetric(horizontal: 20),
+            margin: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
               color: isActive ? Colors.white : Colors.white10,
               borderRadius: BorderRadius.circular(2)
             ),
           ),
           
-          // Task Title
+          // Task Title Column
           Expanded(
-            child: Text(
-              task.title,
-              style: GoogleFonts.inter(
-                color: isCompleted ? Colors.white30 : Colors.white,
-                fontSize: 16,
-                fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                height: 1.3,
-                decoration: isCompleted ? TextDecoration.lineThrough : null,
-                decorationColor: Colors.white30,
-              ),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Subject Name with underline
+                Container(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: isCompleted ? Colors.white10 : Colors.white24, width: 1.5))
+                  ),
+                  child: Text(
+                    task.title.toUpperCase(),
+                    style: GoogleFonts.spaceGrotesk(
+                      color: isCompleted ? Colors.white30 : Colors.white54,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                if (questions.isEmpty)
+                   Text('No specific tasks.', style: GoogleFonts.inter(color: Colors.white54, fontSize: 14, fontStyle: FontStyle.italic))
+                else
+                   ...questions.asMap().entries.map((entry) {
+                     final index = entry.key;
+                     final q = entry.value;
+                     return Padding(
+                       padding: const EdgeInsets.only(bottom: 4),
+                       child: Text(
+                         'Q${index + 1}: ${_cleanTitle(q.title)}', 
+                         style: GoogleFonts.inter(
+                           color: isCompleted ? Colors.white30 : Colors.white,
+                           fontSize: 17,
+                           fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                           height: 1.2,
+                           decoration: isCompleted ? TextDecoration.lineThrough : null,
+                           decorationColor: Colors.white30,
+                         ),
+                         maxLines: 2,
+                         overflow: TextOverflow.ellipsis,
+                       ),
+                     );
+                   }),
+              ],
             )
           ),
         ]
