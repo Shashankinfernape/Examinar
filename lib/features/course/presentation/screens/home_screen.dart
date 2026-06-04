@@ -204,14 +204,14 @@ FontWeight.w900, letterSpacing: 2.0),
       child: Row(
         children: [
           SizedBox(
-            width: 90,
-            height: 90,
+            width: 110,
+            height: 110,
             child: Stack(
               alignment: Alignment.center,
               children: [
                 CircularProgressIndicator(
                   value: progress,
-                  strokeWidth: 8,
+                  strokeWidth: 4,
                   backgroundColor: Colors.white10,
                   color: Colors.white,
                   strokeCap: StrokeCap.round,
@@ -271,7 +271,7 @@ FontWeight.w900, letterSpacing: 2.0),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -339,7 +339,7 @@ FontWeight.w900, letterSpacing: 2.0),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
             child: Text('COMPLETED', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
           ),
           const Divider(height: 1, color: Colors.white10),
@@ -448,7 +448,7 @@ FontWeight.w900, letterSpacing: 2.0),
                      return Padding(
                        padding: const EdgeInsets.only(bottom: 4),
                        child: Text(
-                         'Q${index + 1}: ${_cleanTitle(q.title)}', 
+                         '${index + 1}. ${_cleanTitle(q.title)}', 
                          style: GoogleFonts.inter(
                            color: isCompleted ? Colors.white30 : Colors.white,
                            fontSize: 17,
