@@ -204,14 +204,14 @@ FontWeight.w900, letterSpacing: 2.0),
       child: Row(
         children: [
           SizedBox(
-            width: 110,
-            height: 110,
+            width: 140,
+            height: 140,
             child: Stack(
               alignment: Alignment.center,
               children: [
                 CircularProgressIndicator(
                   value: progress,
-                  strokeWidth: 4,
+                  strokeWidth: 6,
                   backgroundColor: Colors.white10,
                   color: Colors.white,
                   strokeCap: StrokeCap.round,
@@ -219,7 +219,7 @@ FontWeight.w900, letterSpacing: 2.0),
                 Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: FittedBox(
-                    child: Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24)),
+                    child: Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 32)),
                   ),
                 ),
               ]
