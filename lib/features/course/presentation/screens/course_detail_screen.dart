@@ -146,16 +146,10 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
 
   Widget _buildChecklistTab(Course course, double hPad) {
     if (course.units.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.arrow_upward_rounded, size: 48, color: Colors.white24),
-            const SizedBox(height: 16),
-            const Text('PASTE AI SCRIPT', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
-            const SizedBox(height: 8),
-            const Text('Tap the icon on the top right to analyze syllabus', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-          ],
+      return SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 100),
+          child: PasteBuildSheet(course: course, isEmbedded: true),
         ),
       );
     }

@@ -9,8 +9,9 @@ import '../../domain/models/question.dart';
 class PasteBuildSheet extends ConsumerStatefulWidget {
   final Unit? unit; // Optional: If null, we use intelligent mapping
   final Course? course; // Required for intelligent mapping
+  final bool isEmbedded; // If true, do not pop Navigator on success
 
-  const PasteBuildSheet({super.key, this.unit, this.course});
+  const PasteBuildSheet({super.key, this.unit, this.course, this.isEmbedded = false});
 
   @override
   ConsumerState<PasteBuildSheet> createState() => _PasteBuildSheetState();
@@ -188,7 +189,23 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       if (currentCourse == null) return;
 
       await currentCourse.units.load();
-      final units = currentCourse.units.toList()..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+      var units = currentCourse.units.toList()..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+
+      if (units.isEmpty && widget.unit == null) {
+        // Dynamically create Units 1-5 so we have targets to map to
+        await cRepo.isar.writeTxn(() async {
+          for (var i = 1; i <= 5; i++) {
+            final unit = Unit()
+              ..name = 'Unit $i'
+              ..index = i;
+            
+            await cRepo.isar.units.put(unit);
+            currentCourse.units.add(unit);
+          }
+          await currentCourse.units.save();
+        });
+        units = currentCourse.units.toList()..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+      }
 
       for (final q in parsedQuestions) {
         final targetUnit = widget.unit ?? (q['unitIndex'] <= units.length ? units[q['unitIndex'] - 1] : units.last);
@@ -214,7 +231,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         await cRepo.isar.collection<Course>().put(currentCourse);
       });
 
-      if (mounted) Navigator.pop(context);
+      if (mounted && !widget.isEmbedded) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }

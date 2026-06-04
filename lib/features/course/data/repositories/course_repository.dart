@@ -21,16 +21,6 @@ class CourseRepository {
         ..colorTag = colorTag;
       
       await isar.courses.put(course);
-
-      // Auto-generate Units 1-5
-      for (var i = 1; i <= 5; i++) {
-        final unit = Unit()
-          ..name = 'Unit $i'
-          ..index = i;
-        
-        await isar.units.put(unit);
-        course.units.add(unit);
-      }
       
       await course.units.save();
     });
