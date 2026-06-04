@@ -780,10 +780,11 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
           }
           
           // Only create an event if it was explicitly selected (distributing tasks)
-          // Wait, the prompt says "Do not assign anything to unselected sessions."
-          // But these ARE selected sessions. They just might have 0 tasks if M < N.
-          // The prompt says: "For all subsequent selected sessions, assign them exactly Base tasks."
-          // If Base is 0, they get 0 tasks. We still create the 1-hour session block.
+          if (sessionTaskIds.isEmpty) {
+            currentStart = currentStart.add(const Duration(hours: 1));
+            continue;
+          }
+
           final existingEvents = await widget.isar.plannerEvents
               .filter()
               .startTimeEqualTo(currentStart)
@@ -799,7 +800,7 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
               ..title = _course!.name
               ..startTime = currentStart
               ..endTime = currentStart.add(const Duration(hours: 1))
-              ..questionIds = sessionTaskIds.isEmpty ? null : sessionTaskIds;
+              ..questionIds = sessionTaskIds;
             await widget.isar.plannerEvents.put(e);
           }
           

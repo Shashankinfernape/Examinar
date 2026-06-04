@@ -55,8 +55,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           stream: isar.plannerEvents.where().filter().startTimeBetween(startOfDay, endOfDay).watch(fireImmediately: true),
           builder: (context, snapshot) {
             final events = snapshot.data ?? [];
-            final pendingTasks = events.where((e) => !e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
-            final completedTasks = events.where((e) => e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+            final filteredEvents = events.where((e) => !e.title.startsWith('EXAM:')).toList();
+            final pendingTasks = filteredEvents.where((e) => !e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+            final completedTasks = filteredEvents.where((e) => e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
 
             return Scaffold(
               backgroundColor: AppTheme.black,
@@ -69,8 +70,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     padding: EdgeInsets.symmetric(horizontal: hPad),
                     sliver: SliverToBoxAdapter(
                       child: isTablet 
-                          ? _buildTabletLayout(isar, pendingTasks, completedTasks, events.length, completedTasks.length)
-                          : _buildPhoneLayout(isar, pendingTasks, completedTasks, events.length, completedTasks.length),
+                          ? _buildTabletLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length)
+                          : _buildPhoneLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length),
                     ),
                   ),
                   const SliverToBoxAdapter(child: SizedBox(height: 120)),
@@ -286,46 +287,62 @@ FontWeight.w900, letterSpacing: 2.0),
 
   Widget _buildTaskCard(PlannerEvent task, bool isCompleted) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: isCompleted ? Colors.transparent : Colors.white.withOpacity(0.05),
-        border: isCompleted ? Border.all(color: Colors.white10) : null,
+        color: isCompleted ? Colors.transparent : AppTheme.cardSurface,
+        border: Border.all(color: isCompleted ? Colors.white10 : Colors.white24),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            width: 4,
-            height: 40,
-            decoration: BoxDecoration(
-              color: isCompleted ? Colors.white24 : Colors.white,
-              borderRadius: BorderRadius.circular(2)
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
+          // Time Column
+          SizedBox(
+            width: 70,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
-                  '${DateFormat('h:mm a').format(task.startTime)} - ${DateFormat('h:mm a').format(task.endTime)}',
-                  style: TextStyle(color: isCompleted ? Colors.white30 : Colors.white54, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.0)
+                  DateFormat('h:mm a').format(task.startTime),
+                  style: TextStyle(color: isCompleted ? Colors.white30 : Colors.white70, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)
                 ),
-                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6.0),
+                  child: isCompleted 
+                      ? const Icon(Icons.check_circle, color: Colors.white24, size: 16)
+                      : const AnimatedClockIcon(),
+                ),
                 Text(
-                  task.title,
-                  style: TextStyle(
-                    color: isCompleted ? Colors.white54 : Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    decoration: isCompleted ? TextDecoration.lineThrough : null
-                  ),
-                )
-              ]
+                  DateFormat('h:mm a').format(task.endTime),
+                  style: TextStyle(color: isCompleted ? Colors.white24 : Colors.white54, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)
+                ),
+              ],
+            ),
+          ),
+          
+          Container(
+            width: 1,
+            height: 50,
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            color: Colors.white10,
+          ),
+          
+          // Task Title
+          Expanded(
+            child: Text(
+              task.title,
+              style: TextStyle(
+                color: isCompleted ? Colors.white30 : Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+                decoration: isCompleted ? TextDecoration.lineThrough : null
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             )
           ),
-          if (isCompleted)
-            const Icon(Icons.check_circle, color: Colors.white30, size: 20)
         ]
       )
     );
@@ -592,6 +609,58 @@ class _SubjectCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class AnimatedClockIcon extends StatefulWidget {
+  const AnimatedClockIcon({super.key});
+
+  @override
+  State<AnimatedClockIcon> createState() => _AnimatedClockIconState();
+}
+
+class _AnimatedClockIconState extends State<AnimatedClockIcon> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 16,
+      height: 16,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Transform.rotate(
+            angle: _controller.value * 2 * 3.141592653589793,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                width: 1.5,
+                height: 6,
+                color: Colors.white,
+                margin: const EdgeInsets.only(top: 1.5),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
