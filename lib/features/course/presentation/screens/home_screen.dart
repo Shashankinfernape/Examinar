@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +12,7 @@ import '../../data/repositories/course_repository.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:exam_command_center/core/database/isar_provider.dart';
 import 'package:exam_command_center/features/planner/domain/models/planner_event.dart';
+import '../../planner/presentation/widgets/task_action_sheet.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -341,8 +343,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ? <Question>[] 
         : isar.questions.getAllSync(task.questionIds!).whereType<Question>().toList();
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+    return InkWell(
+      onLongPress: () {
+        HapticFeedback.heavyImpact();
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => TaskActionSheet(event: task, isar: isar),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -451,7 +463,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ]
       )
-    );
+    ));
   }
 
 }

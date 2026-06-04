@@ -13,10 +13,13 @@ import '../../../course/domain/models/unit.dart';
 import '../../../course/domain/models/question.dart';
 
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
+final reschedulingEventProvider = StateProvider<PlannerEvent?>((ref) => null);
 
 // ══════════════════════════════════════════════════════════════
 //  DAY SCHEDULE SCREEN
 // ══════════════════════════════════════════════════════════════
+
+import '../widgets/task_action_sheet.dart';
 
 class DayScheduleScreen extends ConsumerStatefulWidget {
   const DayScheduleScreen({super.key});
@@ -47,7 +50,9 @@ class _DayScheduleScreenState extends ConsumerState<DayScheduleScreen> {
         title: Column(
           children: [
             Text(
-              DateFormat('EEEE d MMMM').format(date).toUpperCase(),
+              ref.watch(reschedulingEventProvider) != null 
+                  ? 'SELECT NEW TIME' 
+                  : DateFormat('EEEE d MMMM').format(date).toUpperCase(),
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
@@ -122,17 +127,17 @@ class _DayScheduleScreenState extends ConsumerState<DayScheduleScreen> {
 //  SCHEDULE LIST — Isolates drag state so DB isn't requeried
 // ══════════════════════════════════════════════════════════════
 
-class _ScheduleList extends StatefulWidget {
+class _ScheduleList extends ConsumerStatefulWidget {
   final List<PlannerEvent> events;
   final DateTime date;
   final Isar isar;
   const _ScheduleList({required this.events, required this.date, required this.isar});
 
   @override
-  State<_ScheduleList> createState() => _ScheduleListState();
+  ConsumerState<_ScheduleList> createState() => _ScheduleListState();
 }
 
-class _ScheduleListState extends State<_ScheduleList> {
+class _ScheduleListState extends ConsumerState<_ScheduleList> {
   final ScrollController _scrollController = ScrollController();
   final List<GlobalKey> _hourKeys = List.generate(24, (_) => GlobalKey());
 
@@ -194,6 +199,21 @@ class _ScheduleListState extends State<_ScheduleList> {
         _dragStartHour = null;
         _dragCurrentHour = null;
       });
+      final reschedulingEvent = ref.read(reschedulingEventProvider);
+
+      if (reschedulingEvent != null) {
+        final newStart = DateTime(widget.date.year, widget.date.month, widget.date.day, minH);
+        final newEnd = DateTime(widget.date.year, widget.date.month, widget.date.day, maxH);
+        
+        widget.isar.writeTxn(() async {
+          reschedulingEvent.startTime = newStart;
+          reschedulingEvent.endTime = newEnd;
+          await widget.isar.plannerEvents.put(reschedulingEvent);
+        }).then((_) {
+          ref.read(reschedulingEventProvider.notifier).state = null;
+        });
+        return;
+      }
       
       showModalBottomSheet(
         context: context,
@@ -382,7 +402,7 @@ class _AgendaHourRow extends StatelessWidget {
                                     context: context,
                                     isScrollControlled: true,
                                     backgroundColor: Colors.transparent,
-                                    builder: (_) => _EventDetailSheet(event: e, isar: isar),
+                                    builder: (_) => TaskActionSheet(event: e, isar: isar),
                                   );
                                 },
                               );
