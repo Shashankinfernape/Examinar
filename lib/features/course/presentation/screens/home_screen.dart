@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar/isar.dart';
@@ -20,6 +21,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
   double _headerOpacity = 1.0;
+  Timer? _minuteTimer;
 
   @override
   void initState() {
@@ -30,10 +32,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         _headerOpacity = (1 - (offset / 100)).clamp(0.0, 1.0);
       });
     });
+    _minuteTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _minuteTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -123,12 +129,20 @@ FontWeight.w900, letterSpacing: 2.0),
             children: [
               const Text('TODAY\'S OBJECTIVES', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
               const SizedBox(height: 16),
-              _buildTodoList(pending, isar),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.easeOutCubic,
+                child: _buildTodoList(pending, isar),
+              ),
               if (completed.isNotEmpty) ...[
                 const SizedBox(height: 32),
                 const Text('COMPLETED', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
                 const SizedBox(height: 16),
-                _buildCompletedList(completed, isar),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOutCubic,
+                  child: _buildCompletedList(completed, isar),
+                ),
               ]
             ],
           )
@@ -140,10 +154,6 @@ FontWeight.w900, letterSpacing: 2.0),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildProgressWidget(total, comp),
-              const SizedBox(height: 48),
-              const Text('SUBJECTS', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
-              const SizedBox(height: 16),
-              _buildSubjectsGrid(isar, true),
             ]
           )
         )
@@ -159,17 +169,21 @@ FontWeight.w900, letterSpacing: 2.0),
         const SizedBox(height: 32),
         const Text('TODAY\'S OBJECTIVES', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
         const SizedBox(height: 16),
-        _buildTodoList(pending, isar),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOutCubic,
+          child: _buildTodoList(pending, isar),
+        ),
         if (completed.isNotEmpty) ...[
           const SizedBox(height: 32),
           const Text('COMPLETED', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
           const SizedBox(height: 16),
-          _buildCompletedList(completed, isar),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOutCubic,
+            child: _buildCompletedList(completed, isar),
+          ),
         ],
-        const SizedBox(height: 48),
-        const Text('SUBJECTS', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
-        const SizedBox(height: 16),
-        _buildSubjectsGrid(isar, false),
       ]
     );
   }
@@ -231,23 +245,29 @@ FontWeight.w900, letterSpacing: 2.0),
         width: double.infinity,
         padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.white10, style: BorderStyle.solid),
+          color: AppTheme.cardSurface,
           borderRadius: BorderRadius.circular(16),
         ),
         child: const Text('No pending tasks. You are clear.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white30, fontWeight: FontWeight.w600)),
       );
     }
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: tasks.length,
-      itemBuilder: (context, index) {
-        final task = tasks[index];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Dismissible(
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.cardSurface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: tasks.length,
+        separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10),
+        itemBuilder: (context, index) {
+          final task = tasks[index];
+          return Dismissible(
             key: ValueKey('task_${task.id}'),
             direction: DismissDirection.startToEnd,
+            movementDuration: const Duration(milliseconds: 400),
+            resizeDuration: const Duration(milliseconds: 400),
             onDismissed: (_) async {
                await isar.writeTxn(() async {
                   task.isCompleted = true;
@@ -255,44 +275,40 @@ FontWeight.w900, letterSpacing: 2.0),
                });
             },
             background: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-              ),
+              color: AppTheme.completedColor.withOpacity(0.15),
               alignment: Alignment.centerLeft,
               padding: const EdgeInsets.only(left: 24),
-              child: const Icon(Icons.check, color: Colors.black, size: 28),
+              child: const Icon(Icons.check, color: AppTheme.completedColor, size: 28),
             ),
             child: _buildTaskCard(task, false),
-          )
-        );
-      }
+          );
+        }
+      ),
     );
   }
 
   Widget _buildCompletedList(List<PlannerEvent> tasks, Isar isar) {
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: tasks.length,
-      itemBuilder: (context, index) {
-        final task = tasks[index];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _buildTaskCard(task, true),
-        );
-      }
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.cardSurface.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: tasks.length,
+        separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10),
+        itemBuilder: (context, index) {
+          final task = tasks[index];
+          return _buildTaskCard(task, true);
+        }
+      ),
     );
   }
 
   Widget _buildTaskCard(PlannerEvent task, bool isCompleted) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: isCompleted ? Colors.transparent : AppTheme.cardSurface,
-        border: Border.all(color: isCompleted ? Colors.white10 : Colors.white24),
-        borderRadius: BorderRadius.circular(16),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -311,7 +327,7 @@ FontWeight.w900, letterSpacing: 2.0),
                   padding: const EdgeInsets.symmetric(vertical: 6.0),
                   child: isCompleted 
                       ? const Icon(Icons.check_circle, color: Colors.white24, size: 16)
-                      : const AnimatedClockIcon(),
+                      : AnimatedClockIcon(startTime: task.startTime, endTime: task.endTime),
                 ),
                 Text(
                   DateFormat('h:mm a').format(task.endTime),
@@ -348,295 +364,27 @@ FontWeight.w900, letterSpacing: 2.0),
     );
   }
 
-  Widget _buildSubjectsGrid(Isar isar, bool isTablet) {
-    return StreamBuilder<List<Course>>(
-      stream: isar.courses.where().watch(fireImmediately: true),
-      builder: (context, snapshot) {
-        final courses = snapshot.data ?? [];
-        
-        courses.sort((a, b) {
-          if (a.examDate == null && b.examDate == null) return 0;
-          if (a.examDate == null) return 1;
-          if (b.examDate == null) return -1;
-          return a.examDate!.compareTo(b.examDate!);
-        });
-
-        int columns = 1;
-        if (isTablet) {
-          columns = 2; // Fixed to 2 on tablet sidebar
-        } else {
-          final double width = MediaQuery.of(context).size.width;
-          if (width > 600) columns = 2;
-        }
-
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            mainAxisExtent: 95,
-          ),
-          itemCount: courses.length + 1,
-          itemBuilder: (context, index) {
-            if (index == courses.length) return _buildAddCourseCard(context);
-            return _SubjectCard(course: courses[index], isar: isar);
-          },
-        );
-      }
-    );
-  }
-
-  Widget _buildAddCourseCard(BuildContext context) {
-    return GestureDetector(
-      onTap: () => _showAddCourseDialog(context, ref),
-      child: Container(
-        height: 95,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-          border: Border.all(color: Colors.white24, width: 1),
-        ),
-        child: const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.add, size: 28, color: Colors.white54),
-            SizedBox(height: 8),
-            Text('Add Subject', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w600, fontSize: 13)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showAddCourseDialog(BuildContext context, WidgetRef ref) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      useRootNavigator: false,
-      builder: (context) => Dialog(
-        backgroundColor: AppTheme.black,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: const BorderSide(color: Colors.white10, width: 1),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('INITIALIZE SUBJECT', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 2.0)),
-              const SizedBox(height: 16),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white10),
-                ),
-                child: TextField(
-                  controller: controller,
-                  autofocus: true,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
-                  decoration: const InputDecoration(
-                    hintText: 'e.g. Quantum Physics',
-                    hintStyle: TextStyle(color: Colors.white24, fontSize: 16),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.all(16),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context), 
-                    child: const Text('CANCEL', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w800, letterSpacing: 1.0))
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: () async {
-                      if (controller.text.isNotEmpty) {
-                        final repo = await ref.read(courseRepositoryProvider.future);
-                        await repo.createCourse(controller.text);
-                        if (context.mounted) Navigator.pop(context);
-                      }
-                    },
-                    child: const Text('INITIALIZE', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-class _SubjectCard extends StatelessWidget {
-  final Course course;
-  final Isar isar;
-
-  const _SubjectCard({required this.course, required this.isar});
+class AnimatedClockIcon extends StatelessWidget {
+  final DateTime startTime;
+  final DateTime endTime;
+  
+  const AnimatedClockIcon({super.key, required this.startTime, required this.endTime});
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<Question>>(
-      stream: isar.questions.where().filter().courseIdEqualTo(course.id).watch(fireImmediately: true),
-      builder: (context, snapshot) {
-        final questions = snapshot.data ?? [];
-        final completed = questions.where((q) => q.status == QuestionStatus.completed).length;
-        final progress = questions.isEmpty ? 0.0 : completed / questions.length;
-        final int percent = (progress * 100).toInt();
+    final now = DateTime.now();
+    // Only spawn the clock icon if the task is currently active
+    if (now.isBefore(startTime) || now.isAfter(endTime)) {
+      return const SizedBox(width: 16, height: 16);
+    }
 
-        // Calculate days left
-        String daysLeftText = '';
-        Color daysLeftColor = AppTheme.textSecondary;
-        bool isUrgent = false;
+    // Tick exactly every 15 minutes
+    final int minutes = now.minute;
+    final int quarter = minutes ~/ 15;
+    final double angle = quarter * (3.141592653589793 / 2);
 
-        if (course.examDate != null) {
-          final now = DateTime.now();
-          final startOfToday = DateTime(now.year, now.month, now.day);
-          final examDay = DateTime(course.examDate!.year, course.examDate!.month, course.examDate!.day);
-          final days = examDay.difference(startOfToday).inDays;
-
-          if (days < 0) {
-            daysLeftText = 'Passed';
-          } else if (days == 0) {
-            daysLeftText = 'Today';
-            daysLeftColor = AppTheme.urgentColor;
-            isUrgent = true;
-          } else {
-            daysLeftText = '$days ${days == 1 ? 'day' : 'days'} left';
-            if (days <= 7) {
-              daysLeftColor = Colors.white;
-              isUrgent = true;
-            } else {
-              daysLeftColor = Colors.white70;
-            }
-          }
-        } else {
-          daysLeftText = 'No date set';
-        }
-
-        return GestureDetector(
-          onTap: () => context.push('/course/${course.id}'),
-          child: Container(
-            height: 95,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-              border: Border.all(color: Colors.white24, width: 1),
-            ),
-            child: Row(
-              children: [
-                // Circular Progress
-                SizedBox(
-                  width: 42,
-                  height: 42,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      CircularProgressIndicator(
-                        value: progress,
-                        strokeWidth: 4,
-                        backgroundColor: Colors.white10,
-                        color: progress == 1.0 ? Colors.white : Colors.white,
-                        strokeCap: StrokeCap.round,
-                      ),
-                      Text(
-                        '$percent%',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 14),
-                // Details
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        course.name,
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary, letterSpacing: -0.2),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: daysLeftColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              daysLeftText.toUpperCase(),
-                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: daysLeftColor, letterSpacing: 0.5),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '$completed/${questions.length}',
-                            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.textSecondary),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class AnimatedClockIcon extends StatefulWidget {
-  const AnimatedClockIcon({super.key});
-
-  @override
-  State<AnimatedClockIcon> createState() => _AnimatedClockIconState();
-}
-
-class _AnimatedClockIconState extends State<AnimatedClockIcon> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
       width: 16,
       height: 16,
@@ -644,22 +392,17 @@ class _AnimatedClockIconState extends State<AnimatedClockIcon> with SingleTicker
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white, width: 1.5),
       ),
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          return Transform.rotate(
-            angle: _controller.value * 2 * 3.141592653589793,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Container(
-                width: 1.5,
-                height: 6,
-                color: Colors.white,
-                margin: const EdgeInsets.only(top: 1.5),
-              ),
-            ),
-          );
-        },
+      child: Transform.rotate(
+        angle: angle,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: Container(
+            width: 1.5,
+            height: 6,
+            color: Colors.white,
+            margin: const EdgeInsets.only(top: 1.5),
+          ),
+        ),
       ),
     );
   }
