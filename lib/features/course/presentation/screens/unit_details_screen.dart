@@ -87,13 +87,41 @@ class UnitDetailsScreen extends ConsumerWidget {
                             ),
                           );
                         }
-                        return ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: questions.length,
-                          itemBuilder: (context, index) {
-                            final q = questions[index];
-                            return Card(
+                        List<Widget> children = [];
+                        
+                        String currentPrefix = "";
+                        for (final q in questions) {
+                          String displayTitle = q.title;
+                          
+                          if (unit.name == 'Part A') {
+                            final match = RegExp(r'^\[(Unit \d+)\]').firstMatch(q.title);
+                            if (match != null) {
+                              final prefix = match.group(1)!;
+                              displayTitle = displayTitle.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '');
+                              
+                              if (prefix != currentPrefix) {
+                                currentPrefix = prefix;
+                                children.add(
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 24.0, bottom: 12.0),
+                                    child: Row(
+                                      children: [
+                                        const Expanded(child: Divider(color: Colors.white10)),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                                          child: Text(prefix.toUpperCase(), style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
+                                        ),
+                                        const Expanded(child: Divider(color: Colors.white10)),
+                                      ],
+                                    ),
+                                  )
+                                );
+                              }
+                            }
+                          }
+                          
+                          children.add(
+                            Card(
                               elevation: 0,
                               color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                               margin: const EdgeInsets.only(bottom: 8),
@@ -101,7 +129,7 @@ class UnitDetailsScreen extends ConsumerWidget {
                                 leading: _buildStatusIcon(q.status),
                                 title: Row(
                                   children: [
-                                    Expanded(child: Text(q.title, style: const TextStyle(fontWeight: FontWeight.w500))),
+                                    Expanded(child: Text(displayTitle, style: const TextStyle(fontWeight: FontWeight.w500))),
                                     DifficultyStars(question: q, size: 14),
                                   ],
                                 ),
@@ -120,8 +148,13 @@ class UnitDetailsScreen extends ConsumerWidget {
                                 ),
                                 onTap: () => context.push('/question/${q.id}'),
                               ),
-                            );
-                          },
+                            )
+                          );
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: children,
                         );
                       },
                     ),

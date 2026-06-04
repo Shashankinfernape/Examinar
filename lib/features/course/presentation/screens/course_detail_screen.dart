@@ -205,13 +205,45 @@ class _FlatUnitSection extends ConsumerWidget {
                     child: Text('No active tasks.', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
                   );
                 }
+                List<Widget> children = [];
+                if (unit.name == 'Part A') {
+                  String currentPrefix = "";
+                  for (final q in questions) {
+                    final match = RegExp(r'^\[(Unit \d+)\]').firstMatch(q.title);
+                    if (match != null) {
+                      final prefix = match.group(1)!;
+                      if (prefix != currentPrefix) {
+                        currentPrefix = prefix;
+                        children.add(
+                          Padding(
+                            padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
+                            child: Row(
+                              children: [
+                                const Expanded(child: Divider(color: Colors.white10)),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                                  child: Text(prefix.toUpperCase(), style: const TextStyle(color: Colors.white30, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
+                                ),
+                                const Expanded(child: Divider(color: Colors.white10)),
+                              ],
+                            ),
+                          )
+                        );
+                      }
+                    }
+                    children.add(_FlatQuestionTile(q: q));
+                  }
+                } else {
+                  children = questions.map((q) => _FlatQuestionTile(q: q)).toList();
+                }
+
                 return Container(
                   decoration: BoxDecoration(
                     color: Colors.transparent,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
-                    children: questions.map((q) => _FlatQuestionTile(q: q)).toList(),
+                    children: children,
                   ),
                 );
               },
@@ -234,6 +266,13 @@ class _FlatQuestionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isDone = q.status == QuestionStatus.completed;
+    
+    // Clean prefix for display
+    String displayTitle = q.title;
+    if (displayTitle.startsWith(RegExp(r'^\[Unit \d+\]'))) {
+      displayTitle = displayTitle.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '');
+    }
+
     return InkWell(
       onTap: () => context.push('/question/${q.id}'),
       child: Padding(
@@ -242,7 +281,7 @@ class _FlatQuestionTile extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                q.title, 
+                displayTitle, 
                 style: TextStyle(
                   fontSize: 15, 
                   color: isDone ? AppTheme.textSecondary : Colors.white, 
