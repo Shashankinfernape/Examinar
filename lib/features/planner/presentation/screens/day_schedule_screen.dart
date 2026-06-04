@@ -11,6 +11,7 @@ import '../../domain/models/planner_event.dart';
 import '../../../course/domain/models/course.dart';
 import '../../../course/domain/models/unit.dart';
 import '../../../course/domain/models/question.dart';
+import '../widgets/task_action_sheet.dart';
 
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 final reschedulingEventProvider = StateProvider<PlannerEvent?>((ref) => null);
@@ -18,8 +19,6 @@ final reschedulingEventProvider = StateProvider<PlannerEvent?>((ref) => null);
 // ══════════════════════════════════════════════════════════════
 //  DAY SCHEDULE SCREEN
 // ══════════════════════════════════════════════════════════════
-
-import '../widgets/task_action_sheet.dart';
 
 class DayScheduleScreen extends ConsumerStatefulWidget {
   const DayScheduleScreen({super.key});
@@ -254,9 +253,12 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
           // We rely on Listener for move/up to bypass scroll arena cancellation
           child: Column(
           children: List.generate(24, (i) {
-            final hourEvents = widget.events
-                .where((e) => e.startTime.hour == i)
-                .toList();
+            final hourEvents = widget.events.where((e) {
+              if (e.startTime.hour == i) return true;
+              if (i > e.startTime.hour && i < e.endTime.hour) return true;
+              if (i == e.endTime.hour && e.endTime.minute > 0) return true;
+              return false;
+            }).toList();
 
             final bool isSelected = minSel != null && i >= minSel && i <= maxSel!;
             final bool isTopSel = isSelected && i == minSel;

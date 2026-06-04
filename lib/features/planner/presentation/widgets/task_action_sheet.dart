@@ -50,13 +50,15 @@ class TaskActionSheet extends ConsumerWidget {
     // Set the global provider to track this event
     ref.read(reschedulingEventProvider.notifier).state = event;
     
+    final router = GoRouter.of(context);
+    final location = GoRouterState.of(context).uri.path;
+    
     // Pop the sheet
-    context.pop();
+    Navigator.of(context).pop();
     
     // Ensure we are on the day schedule screen
-    final location = GoRouterState.of(context).uri.path;
     if (location != '/planner/day') {
-      context.push('/planner/day');
+      router.push('/planner/day');
     }
   }
 
