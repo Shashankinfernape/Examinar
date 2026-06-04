@@ -14,7 +14,7 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 1200), () {
+    Future.delayed(const Duration(milliseconds: 2500), () {
       if (mounted) {
         context.go('/home');
       }
@@ -32,11 +32,11 @@ class _SplashScreenState extends State<SplashScreen> {
           color: Colors.white,
         )
         .animate(onPlay: (controller) => controller.repeat())
-        // Fast spin: completed in 1000ms
-        .rotate(begin: -0.125, end: 0.875, duration: 1000.ms, curve: Curves.easeInOutBack)
-        .scale(begin: const Offset(1.0, 1.0), end: const Offset(1.2, 1.2), duration: 500.ms, curve: Curves.easeInOut)
+        // Start upright (matches the app logo perfectly), then spin
+        .rotate(begin: -0.125, end: 0.875, duration: 2000.ms, curve: Curves.easeInOutBack)
+        .scale(begin: const Offset(1.0, 1.0), end: const Offset(1.2, 1.2), duration: 1000.ms, curve: Curves.easeInOut)
         .then()
-        .scale(begin: const Offset(1.2, 1.2), end: const Offset(1.0, 1.0), duration: 500.ms, curve: Curves.easeInOut),
+        .scale(begin: const Offset(1.2, 1.2), end: const Offset(1.0, 1.0), duration: 1000.ms, curve: Curves.easeInOut),
       ),
     );
   }
