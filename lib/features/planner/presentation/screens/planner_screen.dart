@@ -119,7 +119,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
         // ── Calendar ───────────────────────────────────────────────────
         Expanded(
           child: Padding(
-            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 0),
+            padding: EdgeInsets.fromLTRB(hPad, 24.0, hPad, 0),
             child: TableCalendar(
               firstDay: DateTime.utc(2020, 1, 1),
               lastDay: DateTime.utc(2030, 12, 31),
