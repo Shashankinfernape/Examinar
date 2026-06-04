@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar/isar.dart';
@@ -9,6 +8,7 @@ import '../../domain/models/course.dart';
 import '../../data/repositories/course_repository.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:exam_command_center/core/database/isar_provider.dart';
+import 'package:exam_command_center/features/planner/domain/models/planner_event.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -25,86 +25,318 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(() {
+      final offset = _scrollController.offset;
       setState(() {
-        _headerOpacity = (1 - (_scrollController.offset / 100)).clamp(0.0, 1.0);
+        _headerOpacity = (1 - (offset / 100)).clamp(0.0, 1.0);
       });
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final isarAsync = ref.watch(isarProvider);
     final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isTablet = screenWidth > 720;
-    
+    final bool isTablet = screenWidth > 900;
     final double hPad = isTablet ? 32.0 : 16.0;
 
-    return Scaffold(
-      backgroundColor: AppTheme.black,
-      body: isarAsync.when(
-        data: (isar) => StreamBuilder<void>(
-          stream: isar.courses.watchLazy(fireImmediately: true),
-          builder: (context, _) => CustomScrollView(
-            controller: _scrollController,
-            physics: const BouncingScrollPhysics(),
-            slivers: [
-              // ONE UI HEADER
-              SliverToBoxAdapter(
-                child: Opacity(
-                  opacity: _headerOpacity,
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(hPad, 60, hPad, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          DateFormat('EEEE, MMMM d').format(DateTime.now()),
-                          style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w800, letterSpacing: 1.0),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Your Subjects',
-                          style: Theme.of(context).textTheme.displayLarge,
-                        ),
-                      ],
+    return isarAsync.when(
+      data: (isar) {
+        final now = DateTime.now();
+        final startOfDay = DateTime(now.year, now.month, now.day);
+        final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+        return StreamBuilder<List<PlannerEvent>>(
+          stream: isar.plannerEvents.where().filter().startTimeBetween(startOfDay, endOfDay).watch(fireImmediately: true),
+          builder: (context, snapshot) {
+            final events = snapshot.data ?? [];
+            final pendingTasks = events.where((e) => !e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+            final completedTasks = events.where((e) => e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+            return Scaffold(
+              backgroundColor: AppTheme.black,
+              body: CustomScrollView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  _buildHeader(hPad),
+                  SliverPadding(
+                    padding: EdgeInsets.symmetric(horizontal: hPad),
+                    sliver: SliverToBoxAdapter(
+                      child: isTablet 
+                          ? _buildTabletLayout(isar, pendingTasks, completedTasks, events.length, completedTasks.length)
+                          : _buildPhoneLayout(isar, pendingTasks, completedTasks, events.length, completedTasks.length),
                     ),
                   ),
-                ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                ],
               ),
+            );
+          }
+        );
+      },
+      loading: () => const Scaffold(backgroundColor: AppTheme.black, body: SizedBox.shrink()),
+      error: (e, s) => Scaffold(backgroundColor: AppTheme.black, body: Center(child: Text('Error: $e'))),
+    );
+  }
 
-              // SUBJECTS LIST (SORTED BY EXAM DATE)
-              SliverPadding(
-                padding: EdgeInsets.symmetric(horizontal: hPad),
-                sliver: _buildSubjectsList(isar, isTablet),
+  Widget _buildHeader(double hPad) {
+    return SliverToBoxAdapter(
+      child: Opacity(
+        opacity: _headerOpacity,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(hPad, 60, hPad, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                DateFormat('EEEE, MMMM d').format(DateTime.now()).toUpperCase(),
+                style: const TextStyle(fontSize: 12, color: Colors.white54, fontWeight: 
+FontWeight.w900, letterSpacing: 2.0),
               ),
-
-              const SliverToBoxAdapter(child: SizedBox(height: 120)),
+              const SizedBox(height: 8),
+              Text(
+                'Command Center',
+                style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 32),
+              ),
             ],
           ),
         ),
-        loading: () => const SizedBox.shrink(),
-        error: (e, s) => Center(child: Text('Error: $e')),
       ),
     );
   }
 
-  Widget _buildSubjectsList(Isar isar, bool isTablet) {
-    return FutureBuilder<List<Course>>(
-      future: isar.courses.where().findAll(),
+  Widget _buildTabletLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('TODAY\'S OBJECTIVES', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
+              const SizedBox(height: 16),
+              _buildTodoList(pending, isar),
+              if (completed.isNotEmpty) ...[
+                const SizedBox(height: 32),
+                const Text('COMPLETED', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
+                const SizedBox(height: 16),
+                _buildCompletedList(completed, isar),
+              ]
+            ],
+          )
+        ),
+        const SizedBox(width: 48),
+        Expanded(
+          flex: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildProgressWidget(total, comp),
+              const SizedBox(height: 48),
+              const Text('SUBJECTS', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
+              const SizedBox(height: 16),
+              _buildSubjectsGrid(isar, true),
+            ]
+          )
+        )
+      ]
+    );
+  }
+
+  Widget _buildPhoneLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildProgressWidget(total, comp),
+        const SizedBox(height: 32),
+        const Text('TODAY\'S OBJECTIVES', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
+        const SizedBox(height: 16),
+        _buildTodoList(pending, isar),
+        if (completed.isNotEmpty) ...[
+          const SizedBox(height: 32),
+          const Text('COMPLETED', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
+          const SizedBox(height: 16),
+          _buildCompletedList(completed, isar),
+        ],
+        const SizedBox(height: 48),
+        const Text('SUBJECTS', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
+        const SizedBox(height: 16),
+        _buildSubjectsGrid(isar, false),
+      ]
+    );
+  }
+
+  Widget _buildProgressWidget(int total, int completed) {
+    double progress = total == 0 ? 0 : completed / total;
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppTheme.cardSurface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 64,
+            height: 64,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: progress,
+                  strokeWidth: 6,
+                  backgroundColor: Colors.white10,
+                  color: Colors.white,
+                  strokeCap: StrokeCap.round,
+                ),
+                Text('${(progress * 100).toInt()}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+              ]
+            )
+          ),
+          const SizedBox(width: 24),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('DAILY PROGRESS', style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8)
+                  ),
+                  child: Text('$completed/$total Tasks', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                )
+              ]
+            )
+          )
+        ]
+      )
+    );
+  }
+
+  Widget _buildTodoList(List<PlannerEvent> tasks, Isar isar) {
+    if (tasks.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.white10, style: BorderStyle.solid),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Text('No pending tasks. You are clear.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white30, fontWeight: FontWeight.w600)),
+      );
+    }
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: tasks.length,
+      itemBuilder: (context, index) {
+        final task = tasks[index];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Dismissible(
+            key: ValueKey('task_${task.id}'),
+            direction: DismissDirection.startToEnd,
+            onDismissed: (_) async {
+               await isar.writeTxn(() async {
+                  task.isCompleted = true;
+                  await isar.plannerEvents.put(task);
+               });
+            },
+            background: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: 24),
+              child: const Icon(Icons.check, color: Colors.black, size: 28),
+            ),
+            child: _buildTaskCard(task, false),
+          )
+        );
+      }
+    );
+  }
+
+  Widget _buildCompletedList(List<PlannerEvent> tasks, Isar isar) {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: tasks.length,
+      itemBuilder: (context, index) {
+        final task = tasks[index];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _buildTaskCard(task, true),
+        );
+      }
+    );
+  }
+
+  Widget _buildTaskCard(PlannerEvent task, bool isCompleted) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isCompleted ? Colors.transparent : Colors.white.withOpacity(0.05),
+        border: isCompleted ? Border.all(color: Colors.white10) : null,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 40,
+            decoration: BoxDecoration(
+              color: isCompleted ? Colors.white24 : Colors.white,
+              borderRadius: BorderRadius.circular(2)
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${DateFormat('h:mm a').format(task.startTime)} - ${DateFormat('h:mm a').format(task.endTime)}',
+                  style: TextStyle(color: isCompleted ? Colors.white30 : Colors.white54, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.0)
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  task.title,
+                  style: TextStyle(
+                    color: isCompleted ? Colors.white54 : Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    decoration: isCompleted ? TextDecoration.lineThrough : null
+                  ),
+                )
+              ]
+            )
+          ),
+          if (isCompleted)
+            const Icon(Icons.check_circle, color: Colors.white30, size: 20)
+        ]
+      )
+    );
+  }
+
+  Widget _buildSubjectsGrid(Isar isar, bool isTablet) {
+    return StreamBuilder<List<Course>>(
+      stream: isar.courses.where().watch(fireImmediately: true),
       builder: (context, snapshot) {
         final courses = snapshot.data ?? [];
-        if (courses.isEmpty) {
-          return const SliverFillRemaining(
-            child: Center(
-              child: Text(
-                'No subjects added yet.', 
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 16)
-              )
-            ),
-          );
-        }
-
-        // Sort by exam date. Null dates go to the bottom.
+        
         courses.sort((a, b) {
           if (a.examDate == null && b.examDate == null) return 0;
           if (a.examDate == null) return 1;
@@ -112,43 +344,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           return a.examDate!.compareTo(b.examDate!);
         });
 
-        return SliverLayoutBuilder(
-          builder: (context, constraints) {
-            final double maxWidth = constraints.crossAxisExtent;
-            if (maxWidth >= 650) {
-              final int columns = (maxWidth ~/ 350).toInt().clamp(2, 6);
-              return SliverGrid(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  mainAxisExtent: 95, // Compact height constraint
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    if (index == courses.length) return _buildAddCourseCard(context);
-                    return _SubjectCard(course: courses[index], isar: isar);
-                  },
-                  childCount: courses.length + 1,
-                ),
-              );
-            } else {
-              return SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    if (index == courses.length) return Padding(padding: const EdgeInsets.only(bottom: 8.0), child: _buildAddCourseCard(context));
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: _SubjectCard(course: courses[index], isar: isar),
-                    );
-                  },
-                  childCount: courses.length + 1,
-                ),
-              );
-            }
+        int columns = 1;
+        if (isTablet) {
+          columns = 2; // Fixed to 2 on tablet sidebar
+        } else {
+          final double width = MediaQuery.of(context).size.width;
+          if (width > 600) columns = 2;
+        }
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            mainAxisExtent: 95,
+          ),
+          itemCount: courses.length + 1,
+          itemBuilder: (context, index) {
+            if (index == courses.length) return _buildAddCourseCard(context);
+            return _SubjectCard(course: courses[index], isar: isar);
           },
         );
-      },
+      }
     );
   }
 
@@ -156,7 +375,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return GestureDetector(
       onTap: () => _showAddCourseDialog(context, ref),
       child: Container(
-        height: 100,
+        height: 95,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: Colors.transparent,
@@ -296,7 +515,7 @@ class _SubjectCard extends StatelessWidget {
         return GestureDetector(
           onTap: () => context.push('/course/${course.id}'),
           child: Container(
-            height: 100,
+            height: 95,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
             decoration: BoxDecoration(
               color: Colors.transparent,

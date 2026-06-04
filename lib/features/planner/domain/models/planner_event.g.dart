@@ -27,24 +27,29 @@ const PlannerEventSchema = CollectionSchema(
       name: r'endTime',
       type: IsarType.dateTime,
     ),
-    r'questionIds': PropertySchema(
+    r'isCompleted': PropertySchema(
       id: 2,
+      name: r'isCompleted',
+      type: IsarType.bool,
+    ),
+    r'questionIds': PropertySchema(
+      id: 3,
       name: r'questionIds',
       type: IsarType.longList,
     ),
     r'sessionType': PropertySchema(
-      id: 3,
+      id: 4,
       name: r'sessionType',
       type: IsarType.byte,
       enumMap: _PlannerEventsessionTypeEnumValueMap,
     ),
     r'startTime': PropertySchema(
-      id: 4,
+      id: 5,
       name: r'startTime',
       type: IsarType.dateTime,
     ),
     r'title': PropertySchema(
-      id: 5,
+      id: 6,
       name: r'title',
       type: IsarType.string,
     )
@@ -93,10 +98,11 @@ void _plannerEventSerialize(
 ) {
   writer.writeString(offsets[0], object.colorHex);
   writer.writeDateTime(offsets[1], object.endTime);
-  writer.writeLongList(offsets[2], object.questionIds);
-  writer.writeByte(offsets[3], object.sessionType.index);
-  writer.writeDateTime(offsets[4], object.startTime);
-  writer.writeString(offsets[5], object.title);
+  writer.writeBool(offsets[2], object.isCompleted);
+  writer.writeLongList(offsets[3], object.questionIds);
+  writer.writeByte(offsets[4], object.sessionType.index);
+  writer.writeDateTime(offsets[5], object.startTime);
+  writer.writeString(offsets[6], object.title);
 }
 
 PlannerEvent _plannerEventDeserialize(
@@ -109,12 +115,13 @@ PlannerEvent _plannerEventDeserialize(
   object.colorHex = reader.readStringOrNull(offsets[0]);
   object.endTime = reader.readDateTime(offsets[1]);
   object.id = id;
-  object.questionIds = reader.readLongList(offsets[2]);
+  object.isCompleted = reader.readBool(offsets[2]);
+  object.questionIds = reader.readLongList(offsets[3]);
   object.sessionType =
-      _PlannerEventsessionTypeValueEnumMap[reader.readByteOrNull(offsets[3])] ??
+      _PlannerEventsessionTypeValueEnumMap[reader.readByteOrNull(offsets[4])] ??
           SessionType.study;
-  object.startTime = reader.readDateTime(offsets[4]);
-  object.title = reader.readString(offsets[5]);
+  object.startTime = reader.readDateTime(offsets[5]);
+  object.title = reader.readString(offsets[6]);
   return object;
 }
 
@@ -130,14 +137,16 @@ P _plannerEventDeserializeProp<P>(
     case 1:
       return (reader.readDateTime(offset)) as P;
     case 2:
-      return (reader.readLongList(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 3:
+      return (reader.readLongList(offset)) as P;
+    case 4:
       return (_PlannerEventsessionTypeValueEnumMap[
               reader.readByteOrNull(offset)] ??
           SessionType.study) as P;
-    case 4:
-      return (reader.readDateTime(offset)) as P;
     case 5:
+      return (reader.readDateTime(offset)) as P;
+    case 6:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -508,6 +517,16 @@ extension PlannerEventQueryFilter
         includeLower: includeLower,
         upper: upper,
         includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<PlannerEvent, PlannerEvent, QAfterFilterCondition>
+      isCompletedEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isCompleted',
+        value: value,
       ));
     });
   }
@@ -954,6 +973,19 @@ extension PlannerEventQuerySortBy
     });
   }
 
+  QueryBuilder<PlannerEvent, PlannerEvent, QAfterSortBy> sortByIsCompleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isCompleted', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PlannerEvent, PlannerEvent, QAfterSortBy>
+      sortByIsCompletedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isCompleted', Sort.desc);
+    });
+  }
+
   QueryBuilder<PlannerEvent, PlannerEvent, QAfterSortBy> sortBySessionType() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'sessionType', Sort.asc);
@@ -1030,6 +1062,19 @@ extension PlannerEventQuerySortThenBy
     });
   }
 
+  QueryBuilder<PlannerEvent, PlannerEvent, QAfterSortBy> thenByIsCompleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isCompleted', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PlannerEvent, PlannerEvent, QAfterSortBy>
+      thenByIsCompletedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isCompleted', Sort.desc);
+    });
+  }
+
   QueryBuilder<PlannerEvent, PlannerEvent, QAfterSortBy> thenBySessionType() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'sessionType', Sort.asc);
@@ -1083,6 +1128,12 @@ extension PlannerEventQueryWhereDistinct
     });
   }
 
+  QueryBuilder<PlannerEvent, PlannerEvent, QDistinct> distinctByIsCompleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isCompleted');
+    });
+  }
+
   QueryBuilder<PlannerEvent, PlannerEvent, QDistinct> distinctByQuestionIds() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'questionIds');
@@ -1126,6 +1177,12 @@ extension PlannerEventQueryProperty
   QueryBuilder<PlannerEvent, DateTime, QQueryOperations> endTimeProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'endTime');
+    });
+  }
+
+  QueryBuilder<PlannerEvent, bool, QQueryOperations> isCompletedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isCompleted');
     });
   }
 

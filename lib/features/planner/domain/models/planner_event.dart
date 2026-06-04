@@ -24,4 +24,6 @@ class PlannerEvent {
   SessionType sessionType = SessionType.study;
 
   String? colorHex;
+
+  bool isCompleted = false;
 }
