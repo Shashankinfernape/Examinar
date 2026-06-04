@@ -188,7 +188,7 @@ FontWeight.w900, letterSpacing: 2.0),
   Widget _buildProgressWidget(int total, int completed) {
     double progress = total == 0 ? 0 : completed / total;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [AppTheme.cardSurface, AppTheme.cardSurface.withOpacity(0.8)],
@@ -204,43 +204,43 @@ FontWeight.w900, letterSpacing: 2.0),
       child: Row(
         children: [
           SizedBox(
-            width: 140,
-            height: 140,
+            width: 76,
+            height: 76,
             child: Stack(
               alignment: Alignment.center,
               children: [
                 SizedBox.expand(
                   child: CircularProgressIndicator(
                     value: progress,
-                    strokeWidth: 6,
+                    strokeWidth: 5,
                     backgroundColor: Colors.white10,
                     color: Colors.white,
                     strokeCap: StrokeCap.round,
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.all(16.0),
+                  padding: const EdgeInsets.all(12.0),
                   child: FittedBox(
-                    child: Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 32)),
+                    child: Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 20)),
                   ),
                 ),
               ]
             )
           ),
-          const SizedBox(width: 24),
+          const SizedBox(width: 20),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('DAILY PROGRESS', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
-                const SizedBox(height: 12),
+                Text('DAILY PROGRESS', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+                const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12)
+                    borderRadius: BorderRadius.circular(10)
                   ),
-                  child: Text('$completed/$total Tasks Completed', style: GoogleFonts.inter(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+                  child: Text('$completed/$total Tasks Completed', style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
                 )
               ]
             )
