@@ -100,10 +100,11 @@ class UnitDetailsScreen extends ConsumerWidget {
                               displayTitle = displayTitle.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '');
                               
                               if (prefix != currentPrefix) {
+                                bool isFirst = currentPrefix.isEmpty;
                                 currentPrefix = prefix;
                                 children.add(
                                   Padding(
-                                    padding: const EdgeInsets.only(top: 24.0, bottom: 12.0),
+                                    padding: EdgeInsets.only(top: isFirst ? 0.0 : 24.0, bottom: 12.0),
                                     child: Row(
                                       children: [
                                         const Expanded(child: Divider(color: Colors.white10)),

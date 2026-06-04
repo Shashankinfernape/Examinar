@@ -213,10 +213,11 @@ class _FlatUnitSection extends ConsumerWidget {
                     if (match != null) {
                       final prefix = match.group(1)!;
                       if (prefix != currentPrefix) {
+                        bool isFirst = currentPrefix.isEmpty;
                         currentPrefix = prefix;
                         children.add(
                           Padding(
-                            padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
+                            padding: EdgeInsets.only(top: isFirst ? 0.0 : 16.0, bottom: 8.0),
                             child: Row(
                               children: [
                                 const Expanded(child: Divider(color: Colors.white10)),

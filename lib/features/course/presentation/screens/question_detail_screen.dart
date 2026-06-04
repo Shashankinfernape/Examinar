@@ -45,6 +45,13 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             _notesController.text = question.userNotes ?? '';
           }
 
+          String bannerTitle = question.title;
+          bool isPartA = false;
+          if (bannerTitle.startsWith(RegExp(r'^\[Unit \d+\]'))) {
+            isPartA = true;
+            bannerTitle = 'PART A';
+          }
+
           return Scaffold(
             backgroundColor: AppTheme.black,
             body: CustomScrollView(
@@ -71,7 +78,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                question.title,
+                                bannerTitle,
                                 style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 28),
                               ),
                             ),
@@ -119,11 +126,13 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Text(
-                            question.notes?.isEmpty ?? true ? 'No question details available.' : question.notes!,
+                            isPartA 
+                              ? '${question.title.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '')}\n\n${question.notes ?? ""}'.trim()
+                              : (question.notes?.isEmpty ?? true ? 'No question details available.' : question.notes!),
                             style: TextStyle(
                               fontSize: 15, 
                               height: 1.5, 
-                              color: question.notes?.isEmpty ?? true ? AppTheme.textSecondary : AppTheme.textPrimary,
+                              color: isPartA ? AppTheme.textPrimary : (question.notes?.isEmpty ?? true ? AppTheme.textSecondary : AppTheme.textPrimary),
                               fontWeight: FontWeight.w500,
                             ),
                           ),
