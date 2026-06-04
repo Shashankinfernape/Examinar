@@ -216,7 +216,12 @@ FontWeight.w900, letterSpacing: 2.0),
                   color: Colors.white,
                   strokeCap: StrokeCap.round,
                 ),
-                Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24)),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: FittedBox(
+                    child: Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24)),
+                  ),
+                ),
               ]
             )
           ),
@@ -289,6 +294,7 @@ FontWeight.w900, letterSpacing: 2.0),
           ),
           const Divider(height: 1, color: Colors.white10),
           ListView.separated(
+            padding: EdgeInsets.zero,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: tasks.length,
@@ -344,6 +350,7 @@ FontWeight.w900, letterSpacing: 2.0),
           ),
           const Divider(height: 1, color: Colors.white10),
           ListView.separated(
+            padding: EdgeInsets.zero,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: tasks.length,
@@ -448,7 +455,7 @@ FontWeight.w900, letterSpacing: 2.0),
                      return Padding(
                        padding: const EdgeInsets.only(bottom: 4),
                        child: Text(
-                         '${index + 1}. ${_cleanTitle(q.title)}', 
+                         _cleanTitle(q.title), 
                          style: GoogleFonts.inter(
                            color: isCompleted ? Colors.white30 : Colors.white,
                            fontSize: 17,
