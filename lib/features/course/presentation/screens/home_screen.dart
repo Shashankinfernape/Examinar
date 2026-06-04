@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar/isar.dart';
@@ -127,8 +128,6 @@ FontWeight.w900, letterSpacing: 2.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('TODAY\'S OBJECTIVES', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
-              const SizedBox(height: 16),
               AnimatedSize(
                 duration: const Duration(milliseconds: 500),
                 curve: Curves.easeOutCubic,
@@ -136,8 +135,6 @@ FontWeight.w900, letterSpacing: 2.0),
               ),
               if (completed.isNotEmpty) ...[
                 const SizedBox(height: 32),
-                const Text('COMPLETED', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
-                const SizedBox(height: 16),
                 AnimatedSize(
                   duration: const Duration(milliseconds: 500),
                   curve: Curves.easeOutCubic,
@@ -167,8 +164,6 @@ FontWeight.w900, letterSpacing: 2.0),
       children: [
         _buildProgressWidget(total, comp),
         const SizedBox(height: 32),
-        const Text('TODAY\'S OBJECTIVES', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
-        const SizedBox(height: 16),
         AnimatedSize(
           duration: const Duration(milliseconds: 500),
           curve: Curves.easeOutCubic,
@@ -176,8 +171,6 @@ FontWeight.w900, letterSpacing: 2.0),
         ),
         if (completed.isNotEmpty) ...[
           const SizedBox(height: 32),
-          const Text('COMPLETED', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
-          const SizedBox(height: 16),
           AnimatedSize(
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeOutCubic,
@@ -246,43 +239,80 @@ FontWeight.w900, letterSpacing: 2.0),
         padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
           color: AppTheme.cardSurface,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(24),
         ),
-        child: const Text('No pending tasks. You are clear.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white30, fontWeight: FontWeight.w600)),
+        child: Column(
+          children: [
+            Text('TO-DO', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+            const SizedBox(height: 24),
+            Text('No pending tasks. You are clear.', textAlign: TextAlign.center, style: GoogleFonts.inter(color: Colors.white30, fontWeight: FontWeight.w600)),
+          ],
+        ),
       );
     }
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.cardSurface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.03)),
       ),
-      child: ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: tasks.length,
-        separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10),
-        itemBuilder: (context, index) {
-          final task = tasks[index];
-          return Dismissible(
-            key: ValueKey('task_${task.id}'),
-            direction: DismissDirection.startToEnd,
-            movementDuration: const Duration(milliseconds: 400),
-            resizeDuration: const Duration(milliseconds: 400),
-            onDismissed: (_) async {
-               await isar.writeTxn(() async {
-                  task.isCompleted = true;
-                  await isar.plannerEvents.put(task);
-               });
-            },
-            background: Container(
-              color: AppTheme.completedColor.withOpacity(0.15),
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.only(left: 24),
-              child: const Icon(Icons.check, color: AppTheme.completedColor, size: 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('TO-DO', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12)
+                  ),
+                  child: Text('${tasks.length}', style: GoogleFonts.inter(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+                )
+              ],
             ),
-            child: _buildTaskCard(task, false),
-          );
-        }
+          ),
+          const Divider(height: 1, color: Colors.white10),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: tasks.length,
+            separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10, indent: 90),
+            itemBuilder: (context, index) {
+              final task = tasks[index];
+              return Dismissible(
+                key: ValueKey('task_${task.id}'),
+                direction: DismissDirection.startToEnd,
+                movementDuration: const Duration(milliseconds: 600),
+                resizeDuration: const Duration(milliseconds: 500),
+                dismissThresholds: const {DismissDirection.startToEnd: 0.3},
+                onDismissed: (_) async {
+                   await isar.writeTxn(() async {
+                      task.isCompleted = true;
+                      await isar.plannerEvents.put(task);
+                   });
+                },
+                background: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AppTheme.completedColor, Colors.transparent],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    )
+                  ),
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.only(left: 32),
+                  child: Text('COMPLETED', style: GoogleFonts.spaceGrotesk(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 2)),
+                ),
+                child: _buildTaskCard(task, false),
+              );
+            }
+          ),
+        ],
       ),
     );
   }
@@ -290,72 +320,101 @@ FontWeight.w900, letterSpacing: 2.0),
   Widget _buildCompletedList(List<PlannerEvent> tasks, Isar isar) {
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.cardSurface.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(16),
+        color: AppTheme.cardSurface.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.02)),
       ),
-      child: ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: tasks.length,
-        separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10),
-        itemBuilder: (context, index) {
-          final task = tasks[index];
-          return _buildTaskCard(task, true);
-        }
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            child: Text('COMPLETED', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+          ),
+          const Divider(height: 1, color: Colors.white10),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: tasks.length,
+            separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10, indent: 90),
+            itemBuilder: (context, index) {
+              final task = tasks[index];
+              return _buildTaskCard(task, true);
+            }
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildTaskCard(PlannerEvent task, bool isCompleted) {
+    final now = DateTime.now();
+    final isActive = !isCompleted && now.isAfter(task.startTime) && now.isBefore(task.endTime);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Time Column
           SizedBox(
             width: 70,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(
-                  DateFormat('h:mm a').format(task.startTime),
-                  style: TextStyle(color: isCompleted ? Colors.white30 : Colors.white70, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)
+            child: isCompleted 
+              ? Center(
+                  child: Text(
+                    DateFormat('h:mm a').format(task.startTime),
+                    style: GoogleFonts.jetBrainsMono(color: Colors.white30, fontSize: 12, fontWeight: FontWeight.w700)
+                  ),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      DateFormat('h:mm a').format(task.startTime),
+                      style: GoogleFonts.jetBrainsMono(color: isActive ? Colors.white : Colors.white70, fontSize: 12, fontWeight: FontWeight.w700)
+                    ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.easeOutBack,
+                      child: isActive 
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8.0),
+                            child: AnimatedClockIcon(startTime: task.startTime, endTime: task.endTime),
+                          )
+                        : const SizedBox(height: 4),
+                    ),
+                    Text(
+                      DateFormat('h:mm a').format(task.endTime),
+                      style: GoogleFonts.jetBrainsMono(color: isActive ? Colors.white70 : Colors.white54, fontSize: 12, fontWeight: FontWeight.w700)
+                    ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6.0),
-                  child: isCompleted 
-                      ? const Icon(Icons.check_circle, color: Colors.white24, size: 16)
-                      : AnimatedClockIcon(startTime: task.startTime, endTime: task.endTime),
-                ),
-                Text(
-                  DateFormat('h:mm a').format(task.endTime),
-                  style: TextStyle(color: isCompleted ? Colors.white24 : Colors.white54, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)
-                ),
-              ],
-            ),
           ),
           
           Container(
-            width: 1,
-            height: 50,
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            color: Colors.white10,
+            width: 1.5,
+            height: isCompleted ? 20 : 40,
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: isActive ? Colors.white : Colors.white10,
+              borderRadius: BorderRadius.circular(2)
+            ),
           ),
           
           // Task Title
           Expanded(
             child: Text(
               task.title,
-              style: TextStyle(
+              style: GoogleFonts.inter(
                 color: isCompleted ? Colors.white30 : Colors.white,
                 fontSize: 16,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
-                decoration: isCompleted ? TextDecoration.lineThrough : null
+                fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                height: 1.3,
+                decoration: isCompleted ? TextDecoration.lineThrough : null,
+                decorationColor: Colors.white30,
               ),
-              maxLines: 2,
+              maxLines: 3,
               overflow: TextOverflow.ellipsis,
             )
           ),
@@ -377,7 +436,7 @@ class AnimatedClockIcon extends StatelessWidget {
     final now = DateTime.now();
     // Only spawn the clock icon if the task is currently active
     if (now.isBefore(startTime) || now.isAfter(endTime)) {
-      return const SizedBox(width: 16, height: 16);
+      return const SizedBox.shrink(); // Use shrink to completely remove space when inactive
     }
 
     // Tick exactly every 15 minutes
@@ -386,22 +445,40 @@ class AnimatedClockIcon extends StatelessWidget {
     final double angle = quarter * (3.141592653589793 / 2);
 
     return Container(
-      width: 16,
-      height: 16,
+      width: 20,
+      height: 20,
       decoration: BoxDecoration(
+        color: Colors.white,
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.white.withOpacity(0.4),
+            blurRadius: 8,
+            spreadRadius: 2,
+          )
+        ]
       ),
       child: Transform.rotate(
         angle: angle,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: Container(
-            width: 1.5,
-            height: 6,
-            color: Colors.white,
-            margin: const EdgeInsets.only(top: 1.5),
-          ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Center dot
+            Container(width: 4, height: 4, decoration: const BoxDecoration(color: Colors.black, shape: BoxShape.circle)),
+            // Minute hand
+            Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                width: 2,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(1),
+                ),
+                margin: const EdgeInsets.only(top: 3),
+              ),
+            ),
+          ],
         ),
       ),
     );
