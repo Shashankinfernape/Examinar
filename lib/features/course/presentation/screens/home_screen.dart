@@ -209,12 +209,14 @@ FontWeight.w900, letterSpacing: 2.0),
             child: Stack(
               alignment: Alignment.center,
               children: [
-                CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 6,
-                  backgroundColor: Colors.white10,
-                  color: Colors.white,
-                  strokeCap: StrokeCap.round,
+                SizedBox.expand(
+                  child: CircularProgressIndicator(
+                    value: progress,
+                    strokeWidth: 6,
+                    backgroundColor: Colors.white10,
+                    color: Colors.white,
+                    strokeCap: StrokeCap.round,
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(16.0),
