@@ -161,14 +161,16 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
             // 2. Intelligent Unit Mapping
             final numberMatch = RegExp(r'(\d+)').firstMatch(marker);
             int unitIndex = 1;
+            int questionNum = 1;
             if (numberMatch != null) {
-              final num = int.parse(numberMatch.group(1)!);
-              if (num >= 11 && num <= 15) {
-                unitIndex = num - 10;
-              } else if (num >= 1 && num <= 10) {
-                unitIndex = ((num - 1) ~/ 2) + 1;
+              questionNum = int.parse(numberMatch.group(1)!);
+              if (questionNum == 16) {
+                unitIndex = 7; // Part C
+              } else if (questionNum >= 11 && questionNum <= 15) {
+                unitIndex = questionNum - 9; // Part B Units 1-5 (Indexes 2-6)
+              } else {
+                unitIndex = 1; // Part A (Index 1)
               }
-
             }
 
             parsedQuestions.add({
@@ -176,8 +178,21 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
               'content': content,
               'unitIndex': unitIndex,
               'difficulty': difficulty,
+              'qNum': questionNum,
             });
           }
+        }
+      }
+
+      // Process Part A questions to add visual Unit divisions
+      final partAQuestions = parsedQuestions.where((q) => q['unitIndex'] == 1).toList();
+      final n = partAQuestions.length;
+      if (n > 0) {
+        final questionsPerUnit = (n / 5).ceil(); 
+        for (int i = 0; i < n; i++) {
+          final logicalUnit = (i ~/ (questionsPerUnit > 0 ? questionsPerUnit : 1)) + 1;
+          final displayUnit = logicalUnit > 5 ? 5 : logicalUnit;
+          partAQuestions[i]['title'] = '[Unit $displayUnit] ${partAQuestions[i]['title']}';
         }
       }
 
@@ -192,12 +207,22 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       var units = currentCourse.units.toList()..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
 
       if (units.isEmpty && widget.unit == null) {
-        // Dynamically create Units 1-5 so we have targets to map to
+        // Dynamically create the 7-Unit Structure
         await cRepo.isar.writeTxn(() async {
-          for (var i = 1; i <= 5; i++) {
+          final unitNames = [
+            'Part A',
+            'Part B | Unit 1',
+            'Part B | Unit 2',
+            'Part B | Unit 3',
+            'Part B | Unit 4',
+            'Part B | Unit 5',
+            'Part C'
+          ];
+          
+          for (var i = 0; i < unitNames.length; i++) {
             final unit = Unit()
-              ..name = 'Unit $i'
-              ..index = i;
+              ..name = unitNames[i]
+              ..index = i + 1;
             
             await cRepo.isar.units.put(unit);
             currentCourse.units.add(unit);
