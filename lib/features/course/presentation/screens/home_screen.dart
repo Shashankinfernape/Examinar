@@ -72,13 +72,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 controller: _scrollController,
                 physics: const BouncingScrollPhysics(),
                 slivers: [
-                  _buildHeader(hPad),
-                  SliverPadding(
-                    padding: EdgeInsets.symmetric(horizontal: hPad),
-                    sliver: SliverToBoxAdapter(
-                      child: isTablet 
-                          ? _buildTabletLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length)
-                          : _buildPhoneLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length),
+                  SliverSafeArea(
+                    bottom: false,
+                    sliver: SliverPadding(
+                      padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 24),
+                      sliver: SliverToBoxAdapter(
+                        child: isTablet 
+                            ? _buildTabletLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length)
+                            : _buildPhoneLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length),
+                      ),
                     ),
                   ),
                   const SliverToBoxAdapter(child: SizedBox(height: 120)),
@@ -90,32 +92,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       },
       loading: () => const Scaffold(backgroundColor: AppTheme.black, body: SizedBox.shrink()),
       error: (e, s) => Scaffold(backgroundColor: AppTheme.black, body: Center(child: Text('Error: $e'))),
-    );
-  }
-
-  Widget _buildHeader(double hPad) {
-    return SliverToBoxAdapter(
-      child: Opacity(
-        opacity: _headerOpacity,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(hPad, 60, hPad, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                DateFormat('EEEE, MMMM d').format(DateTime.now()).toUpperCase(),
-                style: const TextStyle(fontSize: 12, color: Colors.white54, fontWeight: 
-FontWeight.w900, letterSpacing: 2.0),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Command Center',
-                style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 32),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -278,20 +254,9 @@ FontWeight.w900, letterSpacing: 2.0),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('TO-DO', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12)
-                  ),
-                  child: Text('${tasks.length}', style: GoogleFonts.inter(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
-                )
-              ],
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: Text('TO-DO LIST', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
             ),
           ),
           const Divider(height: 1, color: Colors.white10),
@@ -347,8 +312,10 @@ FontWeight.w900, letterSpacing: 2.0),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-            child: Text('COMPLETED', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: Text('COMPLETED', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+            ),
           ),
           const Divider(height: 1, color: Colors.white10),
           ListView.separated(
@@ -456,18 +423,26 @@ FontWeight.w900, letterSpacing: 2.0),
                      final q = entry.value;
                      return Padding(
                        padding: const EdgeInsets.only(bottom: 4),
-                       child: Text(
-                         _cleanTitle(q.title), 
-                         style: GoogleFonts.inter(
-                           color: isCompleted ? Colors.white30 : Colors.white,
-                           fontSize: 17,
-                           fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                           height: 1.2,
-                           decoration: isCompleted ? TextDecoration.lineThrough : null,
-                           decorationColor: Colors.white30,
-                         ),
-                         maxLines: 2,
-                         overflow: TextOverflow.ellipsis,
+                       child: Builder(
+                         builder: (context) {
+                           return InkWell(
+                             onTap: () => context.push('/question/${q.id}'),
+                             borderRadius: BorderRadius.circular(4),
+                             child: Text(
+                               _cleanTitle(q.title), 
+                               style: GoogleFonts.inter(
+                                 color: isCompleted ? Colors.white30 : Colors.white,
+                                 fontSize: 17,
+                                 fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                                 height: 1.2,
+                                 decoration: isCompleted ? TextDecoration.lineThrough : null,
+                                 decorationColor: Colors.white30,
+                               ),
+                               maxLines: 2,
+                               overflow: TextOverflow.ellipsis,
+                             ),
+                           );
+                         }
                        ),
                      );
                    }),
