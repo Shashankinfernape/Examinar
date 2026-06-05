@@ -120,7 +120,8 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
         Expanded(
           child: Padding(
             padding: EdgeInsets.fromLTRB(hPad, 24.0, hPad, 0),
-            child: TableCalendar(
+            child: SingleChildScrollView(
+              child: TableCalendar(
               firstDay: DateTime.utc(2020, 1, 1),
               lastDay: DateTime.utc(2030, 12, 31),
               focusedDay: focused,
@@ -130,7 +131,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                 });
               },
               calendarFormat: CalendarFormat.month,
-              rowHeight: 90.0,
+              rowHeight: 75.0,
               daysOfWeekHeight: 20.0,
               headerVisible: false,
               availableGestures: AvailableGestures.horizontalSwipe,
@@ -202,6 +203,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                 _showDayEditor(context, selectedDay, byDay, isar);
               },
             ),
+            ),
           ),
         ),
         const SizedBox(height: 100),
@@ -218,20 +220,22 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
       context: context,
       useRootNavigator: false,
       builder: (_) => Align(
-        alignment: Alignment.topCenter,
+        alignment: Alignment.center,
         child: Padding(
           padding: EdgeInsets.only(
-            top: 80, 
             left: 16, 
             right: 16, 
             bottom: MediaQuery.of(context).viewInsets.bottom + 16
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: _DayEditorSheet(
-              date: date,
-              existingEvents: dayEvents,
-              isar: isar,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Material(
+              color: Colors.transparent,
+              child: _DayEditorSheet(
+                date: date,
+                existingEvents: dayEvents,
+                isar: isar,
+              ),
             ),
           ),
         ),
@@ -333,7 +337,7 @@ class _DayEditorSheetState extends State<_DayEditorSheet> {
     return SingleChildScrollView(
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF121212), // Solid opaque background
+          color: const Color(0xFF000000), // Solid opaque background
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: Colors.white24, width: 1),
         ),
@@ -407,10 +411,10 @@ class _DayEditorSheetState extends State<_DayEditorSheet> {
                           return PopupMenuButton<Course>(
                             initialValue: _selectedCourse,
                             onSelected: (c) => setState(() => _selectedCourse = c),
-                            offset: const Offset(0, 56),
+                            position: PopupMenuPosition.under,
                             color: const Color(0xFF1E1E1E),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            constraints: BoxConstraints(minWidth: constraints.maxWidth, maxWidth: constraints.maxWidth),
+                            constraints: BoxConstraints(minWidth: constraints.maxWidth, maxWidth: constraints.maxWidth, maxHeight: 300),
                             itemBuilder: (context) => _courses.map((c) => PopupMenuItem<Course>(
                               value: c,
                               child: Text(c.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),

@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/gestures.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/database/isar_provider.dart';
 import 'package:isar/isar.dart';
@@ -289,6 +291,14 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
               isSelected: isSelected,
               isSelectionTop: isTopSel,
               isSelectionBottom: isBotSel,
+              onMouseDragStart: () {
+                HapticFeedback.heavyImpact();
+                setState(() {
+                  _isSelectionMode = true;
+                  _dragStartHour = i;
+                  _dragCurrentHour = i;
+                });
+              },
             );
           }),
         ),
@@ -310,6 +320,7 @@ class _AgendaHourRow extends StatelessWidget {
   final bool isSelected;
   final bool isSelectionTop;
   final bool isSelectionBottom;
+  final VoidCallback? onMouseDragStart;
 
   const _AgendaHourRow({
     super.key,
@@ -320,6 +331,7 @@ class _AgendaHourRow extends StatelessWidget {
     this.isSelected = false,
     this.isSelectionTop = false,
     this.isSelectionBottom = false,
+    this.onMouseDragStart,
   });
 
   @override
@@ -348,24 +360,29 @@ class _AgendaHourRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Time Column - Centered Vertically with Bottom Border
-          Container(
-            width: 85,
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFF1C1C1E), width: 1)),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: isSelected ? AppTheme.samsungBlue : const Color(0xFF8E8E93),
-                    fontSize: 12,
-                    letterSpacing: 1.5,
-                    fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
+          Listener(
+            onPointerDown: (e) {
+              if (e.kind == PointerDeviceKind.mouse) onMouseDragStart?.call();
+            },
+            child: Container(
+              width: 85,
+              decoration: BoxDecoration(
+                border: Border(bottom: hasEventContinuingNextHour ? BorderSide.none : const BorderSide(color: Color(0xFF1C1C1E), width: 1)),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isSelected ? AppTheme.samsungBlue : const Color(0xFF8E8E93),
+                      fontSize: 12,
+                      letterSpacing: 1.5,
+                      fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           
@@ -390,13 +407,18 @@ class _AgendaHourRow extends StatelessWidget {
                       top: isSelectionTop ? BorderSide(color: borderColor, width: 1.5) : BorderSide.none,
                       bottom: isSelectionBottom ? BorderSide(color: borderColor, width: 1.5) : BorderSide.none,
                     )
-                  : Border(bottom: BorderSide(color: const Color(0xFF1C1C1E), width: hasEventContinuingNextHour ? 0 : 1)),
+                  : Border(bottom: hasEventContinuingNextHour ? BorderSide.none : const BorderSide(color: Color(0xFF1C1C1E), width: 1)),
               ),
               child: Container(
                 constraints: const BoxConstraints(minHeight: 56), // Much more compact default
                 padding: EdgeInsets.fromLTRB(10, hasEventContinuingFromPreviousHour ? 0 : 6, 12, hasEventContinuingNextHour ? 0 : 6),
                 child: events.isEmpty
-                    ? const SizedBox() // Empty slot
+                    ? Listener(
+                        onPointerDown: (e) {
+                          if (e.kind == PointerDeviceKind.mouse) onMouseDragStart?.call();
+                        },
+                        child: Container(color: Colors.transparent),
+                      ) // Empty slot
                     : Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -412,9 +434,26 @@ class _AgendaHourRow extends StatelessWidget {
                                   : Future.value([]),
                               builder: (_, snap) {
                                 final qs = snap.data?.whereType<Question>().toList() ?? [];
+                                
+                                // Visually distribute tasks across the multi-hour span
+                                int durationInHours = e.endTime.difference(e.startTime).inHours;
+                                if (durationInHours < 1) durationInHours = 1;
+                                int currentHourIndex = hour - e.startTime.hour;
+                                if (currentHourIndex < 0) currentHourIndex = 0;
+                                if (currentHourIndex >= durationInHours) currentHourIndex = durationInHours - 1;
+
+                                int baseTasks = qs.length ~/ durationInHours;
+                                int remainder = qs.length % durationInHours;
+                                int startIndex = 0;
+                                for (int i = 0; i < currentHourIndex; i++) {
+                                  startIndex += baseTasks + (i < remainder ? 1 : 0);
+                                }
+                                int taskCount = baseTasks + (currentHourIndex < remainder ? 1 : 0);
+                                List<Question> hourQs = qs.sublist(startIndex, startIndex + taskCount);
+
                                 return _EventCard(
                                   event: e, 
-                                  questions: qs,
+                                  questions: hourQs,
                                   isContinuation: isContinuation,
                                   isLastSegment: isLastSegment,
                                   onTap: () {
@@ -486,55 +525,74 @@ class _EventCard extends StatelessWidget {
 
     final bool isMerged = isContinuation || !isLastSegment;
 
-    return Material(
-      color: AppTheme.cardSurface, // #252525
-      elevation: isMerged ? 0 : 4,
-      shadowColor: isMerged ? Colors.transparent : Colors.black45,
-      shape: RoundedRectangleBorder(borderRadius: cardRadius),
-      child: InkWell(
+    double minH = 44;
+    if (!isContinuation && !isLastSegment) minH = 50; // First hour (padding bottom 0)
+    else if (isContinuation && isLastSegment) minH = 50; // Last hour (padding top 0)
+    else if (isContinuation && !isLastSegment) minH = 56; // Middle hour (padding top 0, bottom 0)
+
+    return Transform.translate(
+      offset: Offset(0, isContinuation ? -0.5 : 0),
+      child: Material(
+        color: Colors.black, // OLED Black
+        elevation: isMerged ? 0 : 4,
+        shadowColor: isMerged ? Colors.transparent : Colors.black45,
+        shape: RoundedRectangleBorder(borderRadius: cardRadius),
+        child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
         borderRadius: cardRadius,
-        child: Padding(
+        child: Container(
+          constraints: BoxConstraints(minHeight: minH), // Dynamic height mapping perfectly to cell boundary without extending
           padding: EdgeInsets.fromLTRB(14, isContinuation ? 4 : 8, 14, isLastSegment ? 8 : 4), // Reduced vertical padding
+          decoration: BoxDecoration(
+            color: Colors.transparent, // Ensure OLED black material is visible without tint
+            borderRadius: cardRadius,
+            border: Border(
+              top: !isContinuation ? BorderSide(color: subjectColor.withValues(alpha: 0.25), width: 1.5) : BorderSide.none,
+              bottom: isLastSegment ? BorderSide(color: subjectColor.withValues(alpha: 0.25), width: 1.5) : BorderSide.none,
+              left: BorderSide(color: subjectColor.withValues(alpha: 0.25), width: 1.5),
+              right: BorderSide(color: subjectColor.withValues(alpha: 0.25), width: 1.5),
+            ),
+          ),
           child: Builder(
             builder: (context) {
               final contentWidget = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IntrinsicWidth(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          event.title,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w400,
-                            color: subjectColor,
+                  if (!isContinuation) ...[
+                    IntrinsicWidth(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            event.title,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w400,
+                              color: subjectColor,
+                            ),
                           ),
-                        ),
-                        Container(
-                          margin: const EdgeInsets.only(top: 4, bottom: 8),
-                          height: 1,
-                          color: subjectColor.withValues(alpha: 0.3),
-                        ),
-                      ],
+                          Container(
+                            margin: const EdgeInsets.only(top: 4, bottom: 8),
+                            height: 1,
+                            color: subjectColor.withValues(alpha: 0.3),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  if (questions.isNotEmpty) const SizedBox(height: 2),
+                    if (questions.isNotEmpty) const SizedBox(height: 2),
+                  ],
                   ...questions.map((q) => _TaskLine(q: q)),
                 ],
               );
 
-              return isContinuation
-                  ? Opacity(opacity: 0, child: contentWidget) // Perfect intrinsic height sharing
-                  : contentWidget;
+              return contentWidget;
             },
           ),
         ),
       ),
+    ),
     );
   }
 }
@@ -584,8 +642,6 @@ class _TaskLine extends StatelessWidget {
             Expanded(
               child: Text(
                 cleanedTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13, // Smaller task font
                   color: done ? const Color(0xFF8E8E93) : const Color(0xFFE0E0E0),
@@ -823,6 +879,85 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
   Future<void> _save() async {
     if (_course == null) return;
     
+    if (_selectedIds.isNotEmpty) {
+      List<Question> selectedQuestions = await widget.isar.questions.getAll(_selectedIds).then((list) => list.whereType<Question>().toList());
+      final completedQuestions = selectedQuestions.where((q) => q.status == QuestionStatus.completed).toList();
+      
+      if (completedQuestions.isNotEmpty) {
+        final bool? shouldRevise = await showDialog<bool>(
+          context: context,
+          useRootNavigator: false,
+          builder: (ctx) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(16),
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 380),
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF000000), // Solid opaque background
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white24, width: 1),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('ARE YOU SURE?', style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
+                  const SizedBox(height: 8),
+                  Text(
+                    completedQuestions.length == 1 
+                        ? 'This task is already completed!' 
+                        : '${completedQuestions.length} of the selected tasks are already completed!',
+                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: -0.5),
+                  ),
+                  const SizedBox(height: 32),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.white24),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: Text('Cancel', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 16, letterSpacing: -0.3)),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: Text('Revise', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16, letterSpacing: -0.3)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+
+        if (shouldRevise == null || !shouldRevise) return; // User aborted
+
+        // If Revise, update their status to revisionNeeded
+        await widget.isar.writeTxn(() async {
+          for (var q in completedQuestions) {
+            q.status = QuestionStatus.revisionNeeded;
+            await widget.isar.questions.put(q);
+          }
+        });
+      }
+    }
+
     await widget.isar.writeTxn(() async {
       if (_selectedIds.isEmpty) {
         final e = PlannerEvent()
@@ -831,26 +966,64 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
           ..endTime = widget.endTime;
         await widget.isar.plannerEvents.put(e);
       } else {
-        // No more mathematical chunking! Create ONE single event spanning the selected duration.
-        final existingEvents = await widget.isar.plannerEvents
-            .filter()
-            .startTimeEqualTo(widget.startTime)
-            .titleEqualTo(_course!.name)
-            .findAll();
-            
-        if (existingEvents.isNotEmpty) {
-          final existing = existingEvents.first;
-          existing.endTime = widget.endTime; // Extend duration
-          existing.questionIds = [...(existing.questionIds ?? []), ..._selectedIds];
-          await widget.isar.plannerEvents.put(existing);
+        int durationInHours = widget.endTime.difference(widget.startTime).inHours;
+        
+        if (durationInHours > 1 && _selectedIds.length >= durationInHours) {
+          // Mathematical chunking!
+          int base = _selectedIds.length ~/ durationInHours;
+          int remainder = _selectedIds.length % durationInHours;
+          int index = 0;
+          for (int i = 0; i < durationInHours; i++) {
+            int count = base + (i < remainder ? 1 : 0);
+            if (count > 0) {
+              final chunkStart = widget.startTime.add(Duration(hours: i));
+              final chunkEnd = widget.startTime.add(Duration(hours: i + 1));
+              
+              final existingEvents = await widget.isar.plannerEvents
+                  .filter()
+                  .startTimeEqualTo(chunkStart)
+                  .titleEqualTo(_course!.name)
+                  .findAll();
+                  
+              if (existingEvents.isNotEmpty) {
+                final existing = existingEvents.first;
+                if (existing.endTime.isBefore(chunkEnd)) existing.endTime = chunkEnd; 
+                existing.questionIds = [...(existing.questionIds ?? []), ..._selectedIds.sublist(index, index + count)];
+                await widget.isar.plannerEvents.put(existing);
+              } else {
+                final e = PlannerEvent()
+                  ..title = _course!.name
+                  ..startTime = chunkStart
+                  ..endTime = chunkEnd
+                  ..colorHex = _course!.colorTag
+                  ..questionIds = _selectedIds.sublist(index, index + count);
+                await widget.isar.plannerEvents.put(e);
+              }
+              index += count;
+            }
+          }
         } else {
-          final e = PlannerEvent()
-            ..title = _course!.name
-            ..startTime = widget.startTime
-            ..endTime = widget.endTime
-            ..colorHex = _course!.colorTag
-            ..questionIds = _selectedIds;
-          await widget.isar.plannerEvents.put(e);
+          // ONE single event spanning the selected duration (shared tab).
+          final existingEvents = await widget.isar.plannerEvents
+              .filter()
+              .startTimeEqualTo(widget.startTime)
+              .titleEqualTo(_course!.name)
+              .findAll();
+              
+          if (existingEvents.isNotEmpty) {
+            final existing = existingEvents.first;
+            existing.endTime = widget.endTime; // Extend duration
+            existing.questionIds = [...(existing.questionIds ?? []), ..._selectedIds];
+            await widget.isar.plannerEvents.put(existing);
+          } else {
+            final e = PlannerEvent()
+              ..title = _course!.name
+              ..startTime = widget.startTime
+              ..endTime = widget.endTime
+              ..colorHex = _course!.colorTag
+              ..questionIds = _selectedIds;
+            await widget.isar.plannerEvents.put(e);
+          }
         }
       }
     });
@@ -986,8 +1159,8 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                 : _buildList(),
           ),
 
-          // Save button (step 2)
-          if (_step == 2)
+          // Save button (step 1 or 2)
+          if (_step > 0)
             Padding(
               padding: EdgeInsets.fromLTRB(
                   20, 12, 20, MediaQuery.of(context).padding.bottom + 16),

@@ -13,6 +13,7 @@ import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:exam_command_center/core/database/isar_provider.dart';
 import 'package:exam_command_center/features/planner/domain/models/planner_event.dart';
 import 'package:exam_command_center/features/planner/presentation/widgets/task_action_sheet.dart';
+import 'package:exam_command_center/core/settings/settings_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -49,10 +50,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final settings = ref.watch(settingsProvider);
     final isarAsync = ref.watch(isarProvider);
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isTablet = screenWidth > 900;
     final double hPad = isTablet ? 32.0 : 16.0;
+
+    final hour = DateTime.now().hour;
+    String greeting = 'Good evening';
+    if (hour < 12) {
+      greeting = 'Good morning';
+    } else if (hour < 17) {
+      greeting = 'Good afternoon';
+    }
 
     return isarAsync.when(
       data: (isar) {
@@ -80,8 +90,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 24),
                       sliver: SliverToBoxAdapter(
                         child: isTablet 
-                            ? _buildTabletLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length)
-                            : _buildPhoneLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length),
+                            ? _buildTabletLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length, greeting, settings.userName)
+                            : _buildPhoneLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length, greeting, settings.userName),
                       ),
                     ),
                   ),
@@ -101,83 +111,69 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return title.replaceAll(RegExp(r'[★☆]'), '').trim();
   }
 
-  Widget _buildTabletLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp) {
-    return Row(
+  Widget _buildTabletLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp, String greeting, String userName) {
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          flex: 3,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AnimatedSize(
-                duration: const Duration(milliseconds: 500),
-                curve: Curves.easeOutCubic,
-                child: _buildTodoList(pending, isar),
-              ),
-              if (completed.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeOutCubic,
-                  child: _buildCompletedList(completed, isar),
-                ),
-              ]
-            ],
-          )
-        ),
-        const SizedBox(width: 48),
-        Expanded(
-          flex: 2,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildProgressWidget(total, comp),
-            ]
-          )
+        Text('$greeting, $userName', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+        const SizedBox(height: 24),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildTodoList(context, pending, isar),
+                  if (completed.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _buildCompletedList(context, completed, isar),
+                  ]
+                ],
+              )
+            ),
+            const SizedBox(width: 48),
+            Expanded(
+              flex: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildProgressWidget(context, total, comp),
+                ]
+              )
+            )
+          ]
         )
       ]
     );
   }
 
-  Widget _buildPhoneLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp) {
+  Widget _buildPhoneLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp, String greeting, String userName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildProgressWidget(total, comp),
+        Text('$greeting, $userName', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+        const SizedBox(height: 24),
+        _buildProgressWidget(context, total, comp),
         const SizedBox(height: 16),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 500),
-          curve: Curves.easeOutCubic,
-          child: _buildTodoList(pending, isar),
-        ),
+        _buildTodoList(context, pending, isar),
         if (completed.isNotEmpty) ...[
           const SizedBox(height: 16),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeOutCubic,
-            child: _buildCompletedList(completed, isar),
-          ),
+          _buildCompletedList(context, completed, isar),
         ],
       ]
     );
   }
 
-  Widget _buildProgressWidget(int total, int completed) {
+  Widget _buildProgressWidget(BuildContext context, int total, int completed) {
     double progress = total == 0 ? 0 : completed / total;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppTheme.cardSurface, AppTheme.cardSurface.withOpacity(0.8)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))
-        ],
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.24), width: 1.5),
       ),
       child: Row(
         children: [
@@ -228,14 +224,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildTodoList(List<PlannerEvent> tasks, Isar isar) {
+  Widget _buildTodoList(BuildContext context, List<PlannerEvent> tasks, Isar isar) {
     if (tasks.isEmpty) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
-          color: AppTheme.cardSurface,
+          color: Colors.transparent,
           borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white24, width: 1.5),
         ),
         child: Column(
           children: [
@@ -248,9 +245,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.03)),
+        border: Border.all(color: Colors.white24, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -281,12 +278,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       task.isCompleted = true;
                       await isar.plannerEvents.put(task);
 
-                      // Also mark all associated questions as complete
                       if (task.questionIds != null && task.questionIds!.isNotEmpty) {
                         for (final qId in task.questionIds!) {
                           final q = await isar.questions.get(qId);
-                          if (q != null && !q.done) {
-                            q.done = true;
+                          if (q != null && q.status != QuestionStatus.completed) {
+                            q.status = QuestionStatus.completed;
                             await isar.questions.put(q);
                           }
                         }
@@ -314,12 +310,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildCompletedList(List<PlannerEvent> tasks, Isar isar) {
+  Widget _buildCompletedList(BuildContext context, List<PlannerEvent> tasks, Isar isar) {
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.cardSurface.withOpacity(0.4),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.02)),
+        border: Border.all(color: Colors.white24, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

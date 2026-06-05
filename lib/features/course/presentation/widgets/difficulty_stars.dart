@@ -32,7 +32,7 @@ class DifficultyStars extends ConsumerWidget {
               child: Icon(
                 starIndex < question.difficulty ? Icons.star : Icons.star_border,
                 size: size,
-                color: Colors.amber,
+                color: starIndex < question.difficulty ? Colors.white : Colors.white24,
               ),
             ),
           );

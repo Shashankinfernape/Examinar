@@ -41,7 +41,7 @@ class _UnitDetailSheetState extends ConsumerState<UnitDetailSheet> {
         top: 20,
       ),
       decoration: const BoxDecoration(
-        color: Color(0xFF121212),
+        color: Color(0xFF000000),
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         border: Border(top: BorderSide(color: Colors.white12, width: 1)),
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../data/repositories/course_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../domain/models/course.dart';
@@ -43,8 +44,8 @@ class CoursesScreen extends ConsumerWidget {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Subjects', style: Theme.of(context).textTheme.displayLarge),
-                            const Text('Manage your mission objectives', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14, fontWeight: FontWeight.w500)),
+                            Text('Subjects', style: GoogleFonts.spaceGrotesk(fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.textPrimary, letterSpacing: -1.5)),
+                            Text('Manage your mission objectives', style: GoogleFonts.spaceGrotesk(color: AppTheme.textSecondary, fontSize: 16, fontWeight: FontWeight.w600)),
                           ],
                         ),
                       ],
@@ -127,7 +128,7 @@ class CoursesScreen extends ConsumerWidget {
                     Expanded(
                       child: Text(
                         course.name,
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.2),
+                        style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.5),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -140,14 +141,14 @@ class CoursesScreen extends ConsumerWidget {
                   course.examDate != null 
                     ? 'Target Date: ${DateFormat('MMM dd, yyyy').format(course.examDate!)}' 
                     : 'Target date unassigned',
-                  style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
+                  style: GoogleFonts.inter(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('${(progress * 100).toInt()}%', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
-                    Text('$completed/$total', style: const TextStyle(fontSize: 10, color: Colors.white54, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+                    Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+                    Text('$completed/$total', style: GoogleFonts.spaceGrotesk(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.w800)),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -178,12 +179,12 @@ class CoursesScreen extends ConsumerWidget {
           borderRadius: BorderRadius.circular(AppTheme.cardRadius),
           border: Border.all(color: Colors.white24, width: 1.5),
         ),
-        child: const Column(
+        child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add, size: 28, color: Colors.white54),
-            SizedBox(height: 8),
-            Text('Add Subject', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 0.5)),
+            const Icon(Icons.add, size: 28, color: Colors.white54),
+            const SizedBox(height: 8),
+            Text('Add Subject', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontWeight: FontWeight.w800, fontSize: 16, letterSpacing: -0.5)),
           ],
         ),
       ),

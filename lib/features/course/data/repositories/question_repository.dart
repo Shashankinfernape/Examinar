@@ -3,6 +3,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:exam_command_center/core/database/isar_provider.dart';
 import '../../domain/models/question.dart';
 import '../../domain/models/unit.dart';
+import 'package:exam_command_center/features/planner/domain/models/planner_event.dart';
 
 part 'question_repository.g.dart';
 
@@ -57,6 +58,23 @@ class QuestionRepository {
       question.status = newStatus;
       question.lastViewedAt = DateTime.now();
       await isar.questions.put(question);
+
+      // Sync the planner events associated with this question
+      final isCompleted = newStatus == QuestionStatus.completed;
+      
+      // We can't directly query list contents with Isar easily in this context without
+      // generating specific index, but we can fetch all incomplete or completed events 
+      // depending on the change, or just fetch all and filter. Since planner events 
+      // are relatively small per day, we can find events containing this question.
+      final allEvents = await isar.plannerEvents.where().findAll();
+      final linkedEvents = allEvents.where((e) => e.questionIds != null && e.questionIds!.contains(questionId)).toList();
+      
+      for (var event in linkedEvents) {
+        if (event.isCompleted != isCompleted) {
+          event.isCompleted = isCompleted;
+          await isar.plannerEvents.put(event);
+        }
+      }
     });
   }
 

@@ -32,7 +32,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     return SingleChildScrollView(
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF121212), // Opaque background
+          color: const Color(0xFF000000), // Opaque background
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: Colors.white24, width: 1),
         ),

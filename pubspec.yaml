@@ -51,6 +51,7 @@ dependencies:
   json_annotation: 4.9.0
   riverpod_annotation: 2.3.5
   table_calendar: ^3.2.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
@@ -114,6 +115,9 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
+  windows:
+    generate: true
+    image_path: "assets/examinar_logo_ios.png"
   image_path: "assets/examinar_logo_ios.png"
   adaptive_icon_background: "#121212"
   adaptive_icon_foreground: "assets/examinar_logo_transparent.png"

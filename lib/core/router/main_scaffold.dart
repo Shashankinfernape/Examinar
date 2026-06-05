@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../features/course/presentation/widgets/quick_add_question_sheet.dart';
 import '../theme/app_theme.dart';
 
@@ -103,14 +104,13 @@ class MainScaffold extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 16),
+          const SizedBox(height: 32),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Mission', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.textPrimary, letterSpacing: -1.5)),
-                Text('Control'.toUpperCase(), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF8888A0), letterSpacing: 4.0)),
+                Text('Examinar', style: GoogleFonts.spaceGrotesk(fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.textPrimary, letterSpacing: -1.5)),
               ],
             ),
           ),
@@ -134,7 +134,7 @@ class MainScaffold extends ConsumerWidget {
         onTap: () => _navigate(context, index),
         borderRadius: BorderRadius.circular(24),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: isSelected ? AppTheme.selectedTile : Colors.transparent,
             borderRadius: BorderRadius.circular(24),
@@ -144,14 +144,14 @@ class MainScaffold extends ConsumerWidget {
               Icon(
                 isSelected ? activeIcon : icon, 
                 color: isSelected ? AppTheme.samsungBlue : AppTheme.textSecondary, 
-                size: 22
+                size: 24
               ),
               const SizedBox(width: 16),
               Text(
                 label,
-                style: TextStyle(
+                style: GoogleFonts.inter(
                   fontSize: 15,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                   color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
                   letterSpacing: 0.2,
                 ),

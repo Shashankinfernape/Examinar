@@ -11,16 +11,17 @@ class NoTransitionsBuilder extends PageTransitionsBuilder {
 }
 
 class AppTheme {
-  // --- Exact Samsung One UI Colors ---
-  static const Color black = Color(0xFF121212);             // Deep Tonal Grey for depth
-  static const Color sidebarSurface = Color(0xFF1A1A1C);    // Sidebar / Surface 1
-  static const Color cardSurface = Color(0xFF252525);       // Elevated Card Surface
-  static const Color selectedTile = Color(0xFF323234);      // Hover / Selection background
-  static const Color samsungBlue = Color(0xFFFFFFFF);       // Primary Accent (Now White)
+  // --- Exact Samsung One UI / AMOLED Colors ---
+  static const Color black = Color(0xFF000000);             // Pitch Black (AMOLED Base)
+  static const Color sidebarSurface = Color(0xFF111111);    // Sidebar / Surface 1 (Darker)
+  static const Color cardSurface = Color(0xFF1C1C1E);       // Elevated Card Surface (Darker)
+  static const Color selectedTile = Color(0xFF2C2C2E);      // Hover / Selection background
+  
+  static const Color samsungBlue = Color(0xFFFFFFFF);       // Legacy reference
   static const Color premiumPurple = Color(0xFF1C54B2);     // Original Purple
   
-  static const Color textPrimary = Color(0xFFE8EAED);       // High emphasis text
-  static const Color textSecondary = Color(0xFF9AA0A6);     // Low emphasis text
+  static const Color textPrimary = Color(0xFFF5F5F7);       // Brighter white for pitch black contrast
+  static const Color textSecondary = Color(0xFFA1A1A6);     // Low emphasis text
   static const Color textOnAccent = Color(0xFF000000);      // Text on light backgrounds
 
   // --- Adaptive Status Colors ---

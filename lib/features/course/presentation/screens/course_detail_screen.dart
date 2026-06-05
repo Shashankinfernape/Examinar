@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:isar/isar.dart';
 import '../../data/repositories/course_repository.dart';
 import '../../data/repositories/question_repository.dart';
@@ -86,30 +87,31 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
                       const SizedBox(height: 16),
                       Text(
                         course.name,
-                        style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -1.0, height: 1.1),
-                        maxLines: 2,
+                        style: GoogleFonts.spaceGrotesk(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5),
                         overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                       ),
                       const SizedBox(height: 16),
                       Container(
                         height: 48,
                         padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
-                          color: AppTheme.sidebarSurface,
+                          color: Colors.white.withOpacity(0.05),
                           borderRadius: BorderRadius.circular(24),
                         ),
                         child: TabBar(
                           controller: _tabController,
                           indicator: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            color: AppTheme.selectedTile,
+                            borderRadius: BorderRadius.circular(24),
+                            color: AppTheme.cardSurface,
                             boxShadow: [
-                              BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2)),
+                              BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2)),
                             ],
                           ),
                           labelColor: Colors.white,
                           unselectedLabelColor: AppTheme.textSecondary,
-                          labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 1.0),
+                          labelStyle: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 1.5),
+                          unselectedLabelStyle: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600, fontSize: 13, letterSpacing: 1.5),
                           dividerColor: Colors.transparent,
                           indicatorSize: TabBarIndicatorSize.tab,
                           tabs: const [
