@@ -218,6 +218,9 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
           } finally {
             if (mounted) {
               ref.read(reschedulingEventProvider.notifier).state = null;
+              if (GoRouterState.of(context).uri.path == '/planner/day' && Navigator.canPop(context)) {
+                context.pop();
+              }
             }
           }
         }();
@@ -253,6 +256,7 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
     }
 
     return Listener(
+      behavior: HitTestBehavior.opaque,
       onPointerDown: (event) {
         if (ref.read(reschedulingEventProvider) != null) {
           final h = _getHourFromOffset(event.position);
@@ -271,6 +275,7 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
         controller: _scrollController,
         physics: const BouncingScrollPhysics(),
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onLongPressStart: _onLongPressStart,
           // We rely on Listener for move/up to bypass scroll arena cancellation
           child: Column(
