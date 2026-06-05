@@ -204,13 +204,23 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
         final newStart = DateTime(widget.date.year, widget.date.month, widget.date.day, minH);
         final newEnd = DateTime(widget.date.year, widget.date.month, widget.date.day, maxH);
         
-        widget.isar.writeTxn(() async {
-          reschedulingEvent.startTime = newStart;
-          reschedulingEvent.endTime = newEnd;
-          await widget.isar.plannerEvents.put(reschedulingEvent);
-        }).then((_) {
-          ref.read(reschedulingEventProvider.notifier).state = null;
-        });
+        () async {
+          try {
+            await widget.isar.writeTxn(() async {
+              reschedulingEvent.startTime = newStart;
+              reschedulingEvent.endTime = newEnd;
+              await widget.isar.plannerEvents.put(reschedulingEvent);
+            });
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error rescheduling: $e')));
+            }
+          } finally {
+            if (mounted) {
+              ref.read(reschedulingEventProvider.notifier).state = null;
+            }
+          }
+        }();
         return;
       }
       

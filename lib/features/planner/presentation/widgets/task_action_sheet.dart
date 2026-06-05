@@ -57,9 +57,11 @@ class TaskActionSheet extends ConsumerWidget {
     Navigator.of(context).pop();
     
     // Ensure we are on the day schedule screen
-    if (location != '/planner/day') {
-      router.push('/planner/day');
-    }
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (location != '/planner/day') {
+        router.push('/planner/day');
+      }
+    });
   }
 
   @override

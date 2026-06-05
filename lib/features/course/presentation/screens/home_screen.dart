@@ -12,7 +12,7 @@ import '../../data/repositories/course_repository.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:exam_command_center/core/database/isar_provider.dart';
 import 'package:exam_command_center/features/planner/domain/models/planner_event.dart';
-import '../../planner/presentation/widgets/task_action_sheet.dart';
+import 'package:exam_command_center/features/planner/presentation/widgets/task_action_sheet.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
