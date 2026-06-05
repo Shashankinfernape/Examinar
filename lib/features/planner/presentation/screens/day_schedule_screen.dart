@@ -322,6 +322,11 @@ class _AgendaHourRow extends StatelessWidget {
       bottom: isSelectionBottom ? const Radius.circular(12) : Radius.zero,
     );
 
+    final bool hasEventContinuingNextHour = events.any((e) => 
+      e.endTime.hour > hour + 1 || (e.endTime.hour == hour + 1 && e.endTime.minute > 0)
+    );
+    final bool hasEventContinuingFromPreviousHour = events.any((e) => hour > e.startTime.hour);
+
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -329,8 +334,8 @@ class _AgendaHourRow extends StatelessWidget {
           // Time Column - Centered Vertically with Bottom Border
           Container(
             width: 70,
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFF1C1C1E), width: 1)),
+            decoration: BoxDecoration(
+              border: hasEventContinuingNextHour ? null : const Border(bottom: BorderSide(color: Color(0xFF1C1C1E), width: 1)),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -369,48 +374,55 @@ class _AgendaHourRow extends StatelessWidget {
                       top: isSelectionTop ? BorderSide(color: borderColor, width: 1.5) : BorderSide.none,
                       bottom: isSelectionBottom ? BorderSide(color: borderColor, width: 1.5) : BorderSide.none,
                     )
-                  : const Border(bottom: BorderSide(color: Color(0xFF1C1C1E), width: 1)),
+                  : Border(bottom: BorderSide(color: const Color(0xFF1C1C1E), width: hasEventContinuingNextHour ? 0 : 1)),
               ),
               child: Container(
                 constraints: const BoxConstraints(minHeight: 56), // Much more compact default
-                padding: const EdgeInsets.fromLTRB(10, 6, 12, 6),
+                padding: EdgeInsets.fromLTRB(10, hasEventContinuingFromPreviousHour ? 0 : 6, 12, hasEventContinuingNextHour ? 0 : 6),
                 child: events.isEmpty
                     ? const SizedBox() // Empty slot
                     : Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: events.map((e) => Padding(
-                          padding: const EdgeInsets.only(bottom: 6.0),
-                          child: FutureBuilder<List<Question?>>(
-                            future: e.questionIds != null && e.questionIds!.isNotEmpty
-                                ? isar.questions.getAll(e.questionIds!)
-                                : Future.value([]),
-                            builder: (_, snap) {
-                              final qs = snap.data?.whereType<Question>().toList() ?? [];
-                              return _EventCard(
-                                event: e, 
-                                questions: qs,
-                                onTap: () {
-                                  showModalBottomSheet(
-                                    context: context,
-                                    isScrollControlled: true,
-                                    backgroundColor: Colors.transparent,
-                                    builder: (_) => _EventDetailSheet(event: e, isar: isar),
-                                  );
-                                },
-                                onLongPress: () {
-                                  HapticFeedback.heavyImpact();
-                                  showModalBottomSheet(
-                                    context: context,
-                                    isScrollControlled: true,
-                                    backgroundColor: Colors.transparent,
-                                    builder: (_) => TaskActionSheet(event: e, isar: isar),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                        )).toList(),
+                        children: events.map((e) {
+                          final isContinuation = hour > e.startTime.hour;
+                          final isLastSegment = e.endTime.hour == hour || (e.endTime.hour == hour + 1 && e.endTime.minute == 0);
+                          
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: isLastSegment ? 6.0 : 0.0),
+                            child: FutureBuilder<List<Question?>>(
+                              future: e.questionIds != null && e.questionIds!.isNotEmpty
+                                  ? isar.questions.getAll(e.questionIds!)
+                                  : Future.value([]),
+                              builder: (_, snap) {
+                                final qs = snap.data?.whereType<Question>().toList() ?? [];
+                                return _EventCard(
+                                  event: e, 
+                                  questions: qs,
+                                  isContinuation: isContinuation,
+                                  isLastSegment: isLastSegment,
+                                  onTap: () {
+                                    showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      backgroundColor: Colors.transparent,
+                                      builder: (_) => _EventDetailSheet(event: e, isar: isar),
+                                    );
+                                  },
+                                  onLongPress: () {
+                                    HapticFeedback.heavyImpact();
+                                    showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      backgroundColor: Colors.transparent,
+                                      builder: (_) => TaskActionSheet(event: e, isar: isar),
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                          );
+                        }).toList(),
                       ),
               ),
             ),
@@ -430,12 +442,16 @@ class _EventCard extends StatelessWidget {
   final List<Question> questions;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final bool isContinuation;
+  final bool isLastSegment;
 
   const _EventCard({
     required this.event,
     required this.questions,
     required this.onTap,
     required this.onLongPress,
+    this.isContinuation = false,
+    this.isLastSegment = true,
   });
 
   @override
@@ -443,21 +459,28 @@ class _EventCard extends StatelessWidget {
     final String hexString = event.colorHex ?? '0xFFFFFFFF';
     final Color subjectColor = Color(int.tryParse(hexString) ?? 0xFFFFFFFF);
 
+    final cardRadius = BorderRadius.vertical(
+      top: isContinuation ? Radius.zero : const Radius.circular(10),
+      bottom: isLastSegment ? const Radius.circular(10) : Radius.zero,
+    );
+
     return Material(
       color: AppTheme.cardSurface, // #252525
       elevation: 4,
       shadowColor: Colors.black45,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(borderRadius: cardRadius),
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: cardRadius,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 8), // Reduced vertical padding
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          padding: EdgeInsets.fromLTRB(14, isContinuation ? 4 : 8, 14, isLastSegment ? 8 : 4), // Reduced vertical padding
+          child: isContinuation
+            ? const SizedBox(height: 24)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
               IntrinsicWidth(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
