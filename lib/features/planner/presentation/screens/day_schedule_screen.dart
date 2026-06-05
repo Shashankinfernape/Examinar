@@ -204,6 +204,10 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
         final newStart = DateTime(widget.date.year, widget.date.month, widget.date.day, minH);
         final newEnd = DateTime(widget.date.year, widget.date.month, widget.date.day, maxH);
         
+        // Capture context state synchronously before the async gap!
+        final bool shouldPop = GoRouterState.of(context).uri.path == '/planner/day';
+        final bool canPop = Navigator.canPop(context);
+
         () async {
           try {
             await widget.isar.writeTxn(() async {
@@ -218,7 +222,7 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
           } finally {
             if (mounted) {
               ref.read(reschedulingEventProvider.notifier).state = null;
-              if (GoRouterState.of(context).uri.path == '/planner/day' && Navigator.canPop(context)) {
+              if (shouldPop && canPop) {
                 context.pop();
               }
             }
@@ -838,53 +842,26 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
           ..endTime = widget.endTime;
         await widget.isar.plannerEvents.put(e);
       } else {
-        int m = _selectedIds.length;
-        int n = widget.endTime.difference(widget.startTime).inHours;
-        if (n <= 0) n = 1;
-        
-        int base = m ~/ n;
-        int remainder = m % n;
-        
-        int taskIndex = 0;
-        DateTime currentStart = widget.startTime;
-        
-        for (int i = 0; i < n; i++) {
-          int tasksForThisSession = base + (i < remainder ? 1 : 0);
-          
-          List<int> sessionTaskIds = [];
-          for (int t = 0; t < tasksForThisSession; t++) {
-            if (taskIndex < m) {
-              sessionTaskIds.add(_selectedIds[taskIndex]);
-              taskIndex++;
-            }
-          }
-          
-          // Only create an event if it was explicitly selected (distributing tasks)
-          if (sessionTaskIds.isEmpty) {
-            currentStart = currentStart.add(const Duration(hours: 1));
-            continue;
-          }
-
-          final existingEvents = await widget.isar.plannerEvents
-              .filter()
-              .startTimeEqualTo(currentStart)
-              .titleEqualTo(_course!.name)
-              .findAll();
-              
-          if (existingEvents.isNotEmpty) {
-            final existing = existingEvents.first;
-            existing.questionIds = [...(existing.questionIds ?? []), ...sessionTaskIds];
-            await widget.isar.plannerEvents.put(existing);
-          } else {
-            final e = PlannerEvent()
-              ..title = _course!.name
-              ..startTime = currentStart
-              ..endTime = currentStart.add(const Duration(hours: 1))
-              ..questionIds = sessionTaskIds;
-            await widget.isar.plannerEvents.put(e);
-          }
-          
-          currentStart = currentStart.add(const Duration(hours: 1));
+        // No more mathematical chunking! Create ONE single event spanning the selected duration.
+        final existingEvents = await widget.isar.plannerEvents
+            .filter()
+            .startTimeEqualTo(widget.startTime)
+            .titleEqualTo(_course!.name)
+            .findAll();
+            
+        if (existingEvents.isNotEmpty) {
+          final existing = existingEvents.first;
+          existing.endTime = widget.endTime; // Extend duration
+          existing.questionIds = [...(existing.questionIds ?? []), ..._selectedIds];
+          await widget.isar.plannerEvents.put(existing);
+        } else {
+          final e = PlannerEvent()
+            ..title = _course!.name
+            ..startTime = widget.startTime
+            ..endTime = widget.endTime
+            ..colorHex = _course!.colorHex
+            ..questionIds = _selectedIds;
+          await widget.isar.plannerEvents.put(e);
         }
       }
     });
