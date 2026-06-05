@@ -859,7 +859,7 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
             ..title = _course!.name
             ..startTime = widget.startTime
             ..endTime = widget.endTime
-            ..colorHex = _course!.colorHex
+            ..colorHex = _course!.colorTag
             ..questionIds = _selectedIds;
           await widget.isar.plannerEvents.put(e);
         }
