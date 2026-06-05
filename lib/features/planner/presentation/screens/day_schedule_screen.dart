@@ -253,6 +253,18 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
     }
 
     return Listener(
+      onPointerDown: (event) {
+        if (ref.read(reschedulingEventProvider) != null) {
+          final h = _getHourFromOffset(event.position);
+          if (h != null) {
+            setState(() {
+              _isSelectionMode = true;
+              _dragStartHour = h;
+              _dragCurrentHour = h;
+            });
+          }
+        }
+      },
       onPointerMove: _onPointerMove,
       onPointerUp: _onPointerUp,
       child: SingleChildScrollView(
@@ -344,8 +356,8 @@ class _AgendaHourRow extends StatelessWidget {
           // Time Column - Centered Vertically with Bottom Border
           Container(
             width: 70,
-            decoration: BoxDecoration(
-              border: hasEventContinuingNextHour ? null : const Border(bottom: BorderSide(color: Color(0xFF1C1C1E), width: 1)),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF1C1C1E), width: 1)),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
