@@ -280,6 +280,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                    await isar.writeTxn(() async {
                       task.isCompleted = true;
                       await isar.plannerEvents.put(task);
+
+                      // Also mark all associated questions as complete
+                      if (task.questionIds != null && task.questionIds!.isNotEmpty) {
+                        for (final qId in task.questionIds!) {
+                          final q = await isar.questions.get(qId);
+                          if (q != null && !q.done) {
+                            q.done = true;
+                            await isar.questions.put(q);
+                          }
+                        }
+                      }
                    });
                 },
                 background: Container(
@@ -364,7 +375,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           // Time Column
           SizedBox(
-            width: 70,
+            width: 85,
             child: isCompleted 
               ? Center(
                   child: Text(
@@ -448,9 +459,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                _cleanTitle(q.title), 
                                style: GoogleFonts.inter(
                                  color: isCompleted ? Colors.white30 : Colors.white,
-                                 fontSize: 17,
+                                 fontSize: 14,
                                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                                 height: 1.2,
+                                 height: 1.3,
                                  decoration: isCompleted ? TextDecoration.lineThrough : null,
                                  decorationColor: Colors.white30,
                                ),
