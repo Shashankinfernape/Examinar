@@ -486,10 +486,12 @@ class _EventCard extends StatelessWidget {
       bottom: isLastSegment ? const Radius.circular(10) : Radius.zero,
     );
 
+    final bool isMerged = isContinuation || !isLastSegment;
+
     return Material(
       color: AppTheme.cardSurface, // #252525
-      elevation: 4,
-      shadowColor: Colors.black45,
+      elevation: isMerged ? 0 : 4,
+      shadowColor: isMerged ? Colors.transparent : Colors.black45,
       shape: RoundedRectangleBorder(borderRadius: cardRadius),
       child: InkWell(
         onTap: onTap,
@@ -497,35 +499,41 @@ class _EventCard extends StatelessWidget {
         borderRadius: cardRadius,
         child: Padding(
           padding: EdgeInsets.fromLTRB(14, isContinuation ? 4 : 8, 14, isLastSegment ? 8 : 4), // Reduced vertical padding
-          child: isContinuation
-            ? const SizedBox(height: 24)
-            : Column(
+          child: Builder(
+            builder: (context) {
+              final contentWidget = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-              IntrinsicWidth(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      event.title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w400,
-                        color: subjectColor,
-                      ),
+                  IntrinsicWidth(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          event.title,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w400,
+                            color: subjectColor,
+                          ),
+                        ),
+                        Container(
+                          margin: const EdgeInsets.only(top: 4, bottom: 8),
+                          height: 1,
+                          color: subjectColor.withValues(alpha: 0.3),
+                        ),
+                      ],
                     ),
-                    Container(
-                      margin: const EdgeInsets.only(top: 4, bottom: 8),
-                      height: 1,
-                      color: subjectColor.withOpacity(0.3),
-                    ),
-                  ],
-                ),
-              ),
-              if (questions.isNotEmpty) const SizedBox(height: 2),
-              ...questions.map((q) => _TaskLine(q: q)),
-            ],
+                  ),
+                  if (questions.isNotEmpty) const SizedBox(height: 2),
+                  ...questions.map((q) => _TaskLine(q: q)),
+                ],
+              );
+
+              return isContinuation
+                  ? Opacity(opacity: 0, child: contentWidget) // Perfect intrinsic height sharing
+                  : contentWidget;
+            },
           ),
         ),
       ),
