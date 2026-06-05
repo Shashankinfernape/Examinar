@@ -222,9 +222,6 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
           } finally {
             if (mounted) {
               ref.read(reschedulingEventProvider.notifier).state = null;
-              if (shouldPop && canPop) {
-                context.pop();
-              }
             }
           }
         }();
@@ -261,18 +258,6 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
 
     return Listener(
       behavior: HitTestBehavior.opaque,
-      onPointerDown: (event) {
-        if (ref.read(reschedulingEventProvider) != null) {
-          final h = _getHourFromOffset(event.position);
-          if (h != null) {
-            setState(() {
-              _isSelectionMode = true;
-              _dragStartHour = h;
-              _dragCurrentHour = h;
-            });
-          }
-        }
-      },
       onPointerMove: _onPointerMove,
       onPointerUp: _onPointerUp,
       child: SingleChildScrollView(
@@ -364,7 +349,7 @@ class _AgendaHourRow extends StatelessWidget {
         children: [
           // Time Column - Centered Vertically with Bottom Border
           Container(
-            width: 70,
+            width: 85,
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: Color(0xFF1C1C1E), width: 1)),
             ),
@@ -446,7 +431,11 @@ class _AgendaHourRow extends StatelessWidget {
                                       context: context,
                                       isScrollControlled: true,
                                       backgroundColor: Colors.transparent,
-                                      builder: (_) => TaskActionSheet(event: e, isar: isar),
+                                      builder: (_) => TaskActionSheet(
+                                        event: e, 
+                                        isar: isar,
+                                        currentPath: GoRouterState.of(context).uri.path,
+                                      ),
                                     );
                                   },
                                 );

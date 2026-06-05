@@ -10,8 +10,9 @@ import '../screens/day_schedule_screen.dart'; // To access reschedulingEventProv
 class TaskActionSheet extends ConsumerWidget {
   final PlannerEvent event;
   final Isar isar;
+  final String currentPath;
 
-  const TaskActionSheet({super.key, required this.event, required this.isar});
+  const TaskActionSheet({super.key, required this.event, required this.isar, required this.currentPath});
 
   Future<void> _addAnHourCascade(BuildContext context) async {
     final originalEndTime = event.endTime;
@@ -51,7 +52,7 @@ class TaskActionSheet extends ConsumerWidget {
     ref.read(reschedulingEventProvider.notifier).state = event;
     
     final router = GoRouter.of(context);
-    final location = GoRouterState.of(context).uri.path;
+    final location = currentPath;
     
     // Pop the sheet
     Navigator.of(context).pop();

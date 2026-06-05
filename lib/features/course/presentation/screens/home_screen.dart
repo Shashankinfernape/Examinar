@@ -350,7 +350,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           context: context,
           isScrollControlled: true,
           backgroundColor: Colors.transparent,
-          builder: (_) => TaskActionSheet(event: task, isar: isar),
+          builder: (_) => TaskActionSheet(
+            event: task, 
+            isar: isar,
+            currentPath: GoRouterState.of(context).uri.path,
+          ),
         );
       },
       child: Padding(
