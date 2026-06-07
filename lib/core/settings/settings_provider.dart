@@ -6,16 +6,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 class SettingsState {
   final String userName;
   final int themeIndex;
+  final DateTime? lastSyncedAt;
 
   const SettingsState({
     this.userName = 'Student',
     this.themeIndex = 2, // Default to 2 (Pure White / Black Theme)
+    this.lastSyncedAt,
   });
 
-  SettingsState copyWith({String? userName, int? themeIndex}) {
+  SettingsState copyWith({String? userName, int? themeIndex, DateTime? lastSyncedAt}) {
     return SettingsState(
       userName: userName ?? this.userName,
       themeIndex: themeIndex ?? this.themeIndex,
+      lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
     );
   }
 }
@@ -31,7 +34,9 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   void _loadSettings() {
     final name = prefs.getString('userName') ?? 'Student';
     final theme = prefs.getInt('themeIndex') ?? 2;
-    state = SettingsState(userName: name, themeIndex: theme);
+    final lastSyncedEpoch = prefs.getInt('lastSyncedAt');
+    final lastSynced = lastSyncedEpoch != null ? DateTime.fromMillisecondsSinceEpoch(lastSyncedEpoch) : null;
+    state = SettingsState(userName: name, themeIndex: theme, lastSyncedAt: lastSynced);
   }
 
   Future<void> setUserName(String name) async {
@@ -42,6 +47,11 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   Future<void> setThemeIndex(int index) async {
     await prefs.setInt('themeIndex', index);
     state = state.copyWith(themeIndex: index);
+  }
+
+  Future<void> setLastSyncedAt(DateTime date) async {
+    await prefs.setInt('lastSyncedAt', date.millisecondsSinceEpoch);
+    state = state.copyWith(lastSyncedAt: date);
   }
 }
 

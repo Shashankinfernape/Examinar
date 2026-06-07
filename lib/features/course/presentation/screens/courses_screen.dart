@@ -112,6 +112,7 @@ class CoursesScreen extends ConsumerWidget {
         return GestureDetector(
           onTap: () => context.push('/course/${course.id}'),
           onLongPress: () => _showCourseOptions(context, ref, course),
+          onSecondaryTap: () => _showCourseOptions(context, ref, course),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(

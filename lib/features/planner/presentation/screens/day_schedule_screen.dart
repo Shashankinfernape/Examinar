@@ -540,6 +540,7 @@ class _EventCard extends StatelessWidget {
         child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
+        onSecondaryTap: onLongPress,
         borderRadius: cardRadius,
         child: Container(
           constraints: BoxConstraints(minHeight: minH), // Dynamic height mapping perfectly to cell boundary without extending

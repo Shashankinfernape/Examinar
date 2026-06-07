@@ -52,6 +52,12 @@ dependencies:
   riverpod_annotation: 2.3.5
   table_calendar: ^3.2.0
   shared_preferences: ^2.5.5
+  cloud_firestore: ^6.5.0
+  firebase_core: ^4.10.0
+  firebase_auth: ^6.5.2
+  desktop_drop: ^0.7.1
+  image: ^4.8.0
+  msix: ^3.16.13
 
 dev_dependencies:
   flutter_test:
@@ -121,3 +127,10 @@ flutter_launcher_icons:
   image_path: "assets/examinar_logo_ios.png"
   adaptive_icon_background: "#121212"
   adaptive_icon_foreground: "assets/examinar_logo_transparent.png"
+
+msix_config:
+  display_name: "Examinar"
+  publisher_display_name: "Shashankinfernape"
+  identity_name: "Shashankinfernape.Examinar"
+  msix_version: 1.0.4.0
+  logo_path: "assets/examinar_logo.png"

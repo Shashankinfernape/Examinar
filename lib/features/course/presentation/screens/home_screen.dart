@@ -364,6 +364,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         );
       },
+      onSecondaryTap: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => TaskActionSheet(
+            event: task, 
+            isar: isar,
+            currentPath: GoRouterState.of(context).uri.path,
+          ),
+        );
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "217409476638",
+    "project_id": "examinar-1b919",
+    "storage_bucket": "examinar-1b919.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:217409476638:android:45cacfec7c8b2834ff360f",
+        "android_client_info": {
+          "package_name": "com.examcommandcenter.exam_command_center"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQ2S4PO9h9So7lLGeKhhlJ8LWhH7cJPwY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

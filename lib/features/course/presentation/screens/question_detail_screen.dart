@@ -5,6 +5,7 @@ import '../../data/repositories/question_repository.dart';
 import '../../domain/models/question.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'dart:io' as io;
 import '../widgets/difficulty_stars.dart';
 
@@ -20,6 +21,7 @@ class QuestionDetailScreen extends ConsumerStatefulWidget {
 class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   final _notesController = TextEditingController();
   bool _isEditingNotes = false;
+  bool _isDragging = false;
 
   @override
   void dispose() {
@@ -52,9 +54,33 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             bannerTitle = 'PART A';
           }
 
-          return Scaffold(
-            backgroundColor: AppTheme.black,
-            body: CustomScrollView(
+          return DropTarget(
+            onDragDone: (detail) async {
+              setState(() => _isDragging = false);
+              if (detail.files.isEmpty) return;
+              
+              final repo = await ref.read(questionRepositoryProvider.future);
+              await repo.isar.writeTxn(() async {
+                final q = await repo.isar.questions.get(widget.questionId);
+                if (q != null) {
+                  final images = List<String>.from(q.images ?? []);
+                  for (final file in detail.files) {
+                    final p = file.path.toLowerCase();
+                    if (p.endsWith('.jpg') || p.endsWith('.jpeg') || p.endsWith('.png') || p.endsWith('.webp')) {
+                      images.add(file.path);
+                    }
+                  }
+                  q.images = images;
+                  await repo.isar.collection<Question>().put(q);
+                }
+              });
+              HapticFeedback.vibrate();
+            },
+            onDragEntered: (detail) => setState(() => _isDragging = true),
+            onDragExited: (detail) => setState(() => _isDragging = false),
+            child: Scaffold(
+              backgroundColor: AppTheme.black,
+              body: CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
                 // ONE UI DYNAMIC HEADER
@@ -204,8 +230,10 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                       const SizedBox(height: 16),
 
                       // 5. ANSWER RESOURCES (ATTACHMENTS)
-                      _buildOneUICard(
-                        title: 'Answer Resources',
+                      Stack(
+                        children: [
+                          _buildOneUICard(
+                            title: 'Answer Resources',
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -262,6 +290,28 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                           ),
                         ),
                       ),
+                      if (_isDragging)
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: AppTheme.sidebarSurface.withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+                              border: Border.all(color: AppTheme.samsungBlue, width: 2),
+                            ),
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.file_download, size: 48, color: AppTheme.samsungBlue),
+                                  SizedBox(height: 8),
+                                  Text('Drop files to attach', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
 
                       const SizedBox(height: 150),
                     ]),
@@ -269,7 +319,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                 ),
               ],
             ),
-          );
+          ),
+        );
         },
       ),
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -303,7 +354,6 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   }
 
   Widget _buildAssetTile(Question question, String path, int index) {
-    final isImage = path.toLowerCase().endsWith('.png') || path.toLowerCase().endsWith('.jpg') || path.toLowerCase().endsWith('.jpeg');
     return Stack(
       children: [
         Container(
@@ -313,9 +363,24 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             border: Border.all(color: Colors.white.withOpacity(0.05)),
           ),
           clipBehavior: Clip.antiAlias,
-          child: isImage
-            ? Image.file(io.File(path), fit: BoxFit.fitWidth)
-            : Container(height: 200, color: AppTheme.selectedTile, child: const Icon(Icons.insert_drive_file, size: 32)),
+          child: Image.file(
+            io.File(path), 
+            fit: BoxFit.fitWidth,
+            errorBuilder: (context, error, stackTrace) {
+              return Container(
+                height: 200, 
+                color: AppTheme.selectedTile, 
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Icon(Icons.broken_image_outlined, size: 32, color: Colors.white54),
+                    SizedBox(height: 8),
+                    Text('Image not found on this device', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
         Positioned(
           top: 8,
