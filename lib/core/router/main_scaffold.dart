@@ -3,30 +3,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../features/course/presentation/widgets/quick_add_question_sheet.dart';
 import '../theme/app_theme.dart';
 
-class MainScaffold extends ConsumerWidget {
-  final Widget child;
-
-  const MainScaffold({super.key, required this.child});
+class MainScaffold extends ConsumerStatefulWidget {
+  final StatefulNavigationShell navigationShell;
+  const MainScaffold({super.key, required this.navigationShell});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MainScaffold> createState() => _MainScaffoldState();
+}
+
+class _MainScaffoldState extends ConsumerState<MainScaffold> {
+  bool _isSidebarExpanded = false;
+  bool _isMenuPressed = false;
+
+  void _navigate(BuildContext context, int index) {
+    widget.navigationShell.goBranch(
+      index,
+      initialLocation: index == widget.navigationShell.currentIndex,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isTablet = screenWidth > 720;
-
-    int getIndex() {
-      if (location.startsWith('/course/')) return 1;
-      if (location.startsWith('/unit/')) return 1;
-      if (location.startsWith('/question/')) return 1;
-      if (location == '/home') return 0;
-      if (location == '/courses') return 1;
-      if (location.startsWith('/planner')) return 2;
-      if (location == '/profile') return 3;
-      return 0;
-    }
+    final int selectedIndex = widget.navigationShell.currentIndex;
 
     if (isTablet) {
       return Scaffold(
@@ -34,7 +39,7 @@ class MainScaffold extends ConsumerWidget {
         backgroundColor: AppTheme.black,
         body: Row(
           children: [
-            _buildOneUISidebar(context, getIndex()),
+            _buildOneUISidebar(context, selectedIndex),
             Expanded(
               child: Container(
                 margin: const EdgeInsets.fromLTRB(0, 12, 12, 12),
@@ -43,7 +48,7 @@ class MainScaffold extends ConsumerWidget {
                   color: AppTheme.black,
                   borderRadius: BorderRadius.circular(24),
                 ),
-                child: child,
+                child: widget.navigationShell,
               ),
             ),
           ],
@@ -52,8 +57,6 @@ class MainScaffold extends ConsumerWidget {
     }
 
     // Mobile View
-    final hideFab = location == '/planner/day';
-
     return Scaffold(
       extendBody: true,
       resizeToAvoidBottomInset: false,
@@ -61,7 +64,7 @@ class MainScaffold extends ConsumerWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          child,
+          widget.navigationShell,
           Positioned(
             bottom: 0,
             left: 0,
@@ -86,31 +89,73 @@ class MainScaffold extends ConsumerWidget {
           ),
         ],
       ),
-      bottomNavigationBar: _buildOneUIBottomNav(context, getIndex()),
+      bottomNavigationBar: _buildOneUIBottomNav(context, selectedIndex),
     );
   }
 
   Widget _buildOneUISidebar(BuildContext context, int selectedIndex) {
-    return Container(
-      width: 260, // Normalized width
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutQuad,
+      width: _isSidebarExpanded ? 280 : 80,
       decoration: const BoxDecoration(
-        color: AppTheme.cardSurface, // Grey color for navigation tab layout
+        color: AppTheme.cardSurface,
         borderRadius: BorderRadius.only(
           topRight: Radius.circular(32),
           bottomRight: Radius.circular(32),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 32),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutQuad,
+            padding: EdgeInsets.only(left: _isSidebarExpanded ? 24 : 16),
+            child: Row(
               children: [
-                Text('Examinar', style: GoogleFonts.spaceGrotesk(fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.textPrimary, letterSpacing: -1.5)),
+                GestureDetector(
+                  onTapDown: (_) => setState(() => _isMenuPressed = true),
+                  onTapUp: (_) => setState(() => _isMenuPressed = false),
+                  onTapCancel: () => setState(() => _isMenuPressed = false),
+                  onTap: () {
+                    setState(() {
+                      _isSidebarExpanded = !_isSidebarExpanded;
+                    });
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.hourglass_bottom_rounded, color: Colors.white, size: 32)
+                      .animate(target: _isSidebarExpanded ? 1 : 0)
+                      .rotate(begin: -0.125, end: 0.875, duration: 800.ms, curve: Curves.easeInOutBack),
+                  ).animate(target: _isMenuPressed ? 1 : 0)
+                   .scale(begin: const Offset(1, 1), end: const Offset(0.85, 0.85), duration: 100.ms, curve: Curves.easeOutCubic)
+                   .fade(begin: 1.0, end: 0.7, duration: 100.ms),
+                ),
+                Expanded(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 150),
+                    opacity: _isSidebarExpanded ? 1.0 : 0.0,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const NeverScrollableScrollPhysics(),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 8),
+                          Text(
+                            'Examinar',
+                            style: GoogleFonts.outfit(fontSize: 28, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -128,32 +173,44 @@ class MainScaffold extends ConsumerWidget {
   Widget _sidebarPill(BuildContext context, int index, IconData icon, IconData activeIcon, String label, bool isSelected) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
-      margin: const EdgeInsets.only(bottom: 6),
+      curve: Curves.easeOutQuad,
+      margin: EdgeInsets.symmetric(horizontal: _isSidebarExpanded ? 16 : 12, vertical: 3),
       child: InkWell(
         onTap: () => _navigate(context, index),
         borderRadius: BorderRadius.circular(24),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: EdgeInsets.symmetric(horizontal: _isSidebarExpanded ? 16 : 12, vertical: 12),
           decoration: BoxDecoration(
-            color: isSelected ? AppTheme.selectedTile : Colors.transparent,
+            color: Colors.transparent,
             borderRadius: BorderRadius.circular(24),
           ),
           child: Row(
             children: [
               Icon(
                 isSelected ? activeIcon : icon, 
-                color: isSelected ? AppTheme.samsungBlue : AppTheme.textSecondary, 
+                color: isSelected ? Colors.white : AppTheme.textSecondary, 
                 size: 24
               ),
-              const SizedBox(width: 16),
-              Text(
-                label,
-                style: GoogleFonts.inter(
-                  fontSize: 15,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                  color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
-                  letterSpacing: 0.2,
+              Expanded(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 150),
+                  opacity: _isSidebarExpanded ? 1.0 : 0.0,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 16),
+                      child: Text(
+                        label,
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                          color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -199,15 +256,6 @@ class MainScaffold extends ConsumerWidget {
     );
   }
 
-
-  void _navigate(BuildContext context, int index) {
-    switch (index) {
-      case 0: context.go('/home'); break;
-      case 1: context.go('/courses'); break;
-      case 2: context.go('/planner'); break;
-      case 3: context.go('/profile'); break;
-    }
-  }
 
   void _showQuickAdd(BuildContext context) {
     showModalBottomSheet(

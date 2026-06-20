@@ -265,12 +265,14 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
       child: SingleChildScrollView(
         controller: _scrollController,
         physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 140),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onLongPressStart: _onLongPressStart,
           // We rely on Listener for move/up to bypass scroll arena cancellation
           child: Column(
-          children: List.generate(24, (i) {
+          children: [
+            ...List.generate(24, (i) {
             final hourEvents = widget.events.where((e) {
               if (e.startTime.hour == i) return true;
               if (i > e.startTime.hour && i < e.endTime.hour) return true;
@@ -301,6 +303,8 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
               },
             );
           }),
+
+          ],
         ),
       ),
       ),
@@ -424,7 +428,7 @@ class _AgendaHourRow extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: events.map((e) {
                           final isContinuation = hour > e.startTime.hour;
-                          final isLastSegment = e.endTime.hour == hour || (e.endTime.hour == hour + 1 && e.endTime.minute == 0);
+                          final isLastSegment = e.endTime.hour == hour || (e.endTime.hour == hour + 1 && e.endTime.minute == 0) || (hour == 23 && e.endTime.hour == 0 && e.endTime.minute == 0);
                           
                           return Padding(
                             padding: EdgeInsets.only(bottom: isLastSegment ? 6.0 : 0.0),

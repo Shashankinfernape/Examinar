@@ -92,33 +92,56 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
                         maxLines: 2,
                       ),
                       const SizedBox(height: 16),
-                      Container(
-                        height: 48,
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        child: TabBar(
-                          controller: _tabController,
-                          indicator: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            color: AppTheme.cardSurface,
-                            boxShadow: [
-                              BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2)),
-                            ],
-                          ),
-                          labelColor: Colors.white,
-                          unselectedLabelColor: AppTheme.textSecondary,
-                          labelStyle: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 1.5),
-                          unselectedLabelStyle: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600, fontSize: 13, letterSpacing: 1.5),
-                          dividerColor: Colors.transparent,
-                          indicatorSize: TabBarIndicatorSize.tab,
-                          tabs: const [
-                            Tab(text: 'CHECKLIST'),
-                            Tab(text: 'READINESS'),
-                          ],
-                        ),
+                      AnimatedBuilder(
+                        animation: _tabController.animation!,
+                        builder: (context, _) {
+                          final double value = _tabController.animation!.value;
+                          final double alignX = (value * 2) - 1.0;
+                          final int selectedIndex = value.round();
+
+                          return Container(
+                            height: 48,
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(100),
+                            ),
+                            child: Stack(
+                              children: [
+                                // Sliding Thumb
+                                Align(
+                                  alignment: Alignment(alignX, 0.0),
+                                  child: FractionallySizedBox(
+                                    widthFactor: 0.5,
+                                    heightFactor: 1.0,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(100),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                // Segments
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    _buildCustomTab(
+                                      label: 'CHECKLIST',
+                                      isSelected: selectedIndex == 0,
+                                      onTap: () => _tabController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic),
+                                    ),
+                                    _buildCustomTab(
+                                      label: 'READINESS',
+                                      isSelected: selectedIndex == 1,
+                                      onTap: () => _tabController.animateTo(1, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -129,10 +152,10 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
                     controller: _tabController,
                     children: [
                       // Checklist Tab (Modern Flat UI)
-                      _buildChecklistTab(course, hPad),
+                      _KeepAliveTab(child: _buildChecklistTab(course, hPad)),
 
                       // Readiness Tab (Premium Design)
-                      _CourseReadinessView(course: course, hPad: hPad),
+                      _KeepAliveTab(child: _CourseReadinessView(course: course, hPad: hPad)),
                     ],
                   ),
                 ),
@@ -143,6 +166,29 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
       ),
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, s) => Scaffold(body: Center(child: Text('Error: $e'))),
+    );
+  }
+
+  Widget _buildCustomTab({required String label, required bool isSelected, required VoidCallback onTap}) {
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          color: Colors.transparent,
+          child: Center(
+            child: Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: isSelected ? Colors.white : Colors.white54,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -316,75 +362,273 @@ class _FlatQuestionTile extends StatelessWidget {
   }
 }
 
-class _CourseReadinessView extends ConsumerWidget {
+class _CourseReadinessView extends ConsumerStatefulWidget {
   final Course course;
   final double hPad;
   const _CourseReadinessView({required this.course, required this.hPad});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_CourseReadinessView> createState() => _CourseReadinessViewState();
+}
+
+class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
+  int _selectedTab = 0; // 0: Secured, 1: Revise, 2: Pending
+
+  String _getGrade(double progress) {
+    int p = (progress * 100).toInt();
+    if (p >= 90) return 'O';
+    if (p >= 80) return 'A+';
+    if (p >= 70) return 'A';
+    if (p >= 60) return 'B+';
+    if (p >= 50) return 'B';
+    if (p >= 40) return 'C';
+    if (p >= 30) return 'D';
+    return 'F';
+  }
+
+  Color _getGradeColor(String grade) {
+    if (grade == 'O' || grade == 'A+') return AppTheme.completedColor; 
+    if (grade == 'A' || grade == 'B+') return AppTheme.samsungBlue; 
+    if (grade == 'B' || grade == 'C') return AppTheme.inProgressColor; 
+    return AppTheme.urgentColor; 
+  }
+
+  Widget _buildCustomSegment({
+    required String label,
+    required String count,
+    required bool isSelected,
+    required Color activeColor,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          color: Colors.transparent,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                count,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 16, 
+                  fontWeight: FontWeight.w900, 
+                  color: isSelected ? activeColor : Colors.white54,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final qRepoAsync = ref.watch(questionRepositoryProvider);
 
     return qRepoAsync.when(
       data: (qRepo) => StreamBuilder<List<Question>>(
-        stream: qRepo.isar.questions.where().filter().courseIdEqualTo(course.id).watch(fireImmediately: true),
+        stream: qRepo.isar.questions.where().filter().courseIdEqualTo(widget.course.id).watch(fireImmediately: true),
         builder: (context, snapshot) {
           final questions = snapshot.data ?? [];
           if (questions.isEmpty) return const Center(child: Text('Initialize targets to view readiness.', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)));
 
-          final completed = questions.where((q) => q.status == QuestionStatus.completed).length;
-          final revisionNeeded = questions.where((q) => q.status == QuestionStatus.revisionNeeded).length;
-          final incomplete = questions.where((q) => q.status == QuestionStatus.incomplete).length;
-          final progress = questions.isEmpty ? 0.0 : completed / questions.length;
+          final securedList = questions.where((q) => q.status == QuestionStatus.completed).toList();
+          final reviseList = questions.where((q) => q.status == QuestionStatus.revisionNeeded).toList();
+          final pendingList = questions.where((q) => q.status == QuestionStatus.incomplete).toList();
+          
+          final completedCount = securedList.length;
+          final progress = questions.isEmpty ? 0.0 : completedCount / questions.length;
+          final grade = _getGrade(progress);
+          final gradeColor = _getGradeColor(grade);
 
-          return ListView(
-            padding: EdgeInsets.all(hPad),
-            children: [
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: AppTheme.cardSurface,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.white.withOpacity(0.05), width: 1),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('OVERALL READINESS', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 2.0)),
-                    const SizedBox(height: 8),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+          List<Question> displayedQuestions = [];
+          if (_selectedTab == 0) displayedQuestions = securedList;
+          else if (_selectedTab == 1) displayedQuestions = reviseList;
+          else if (_selectedTab == 2) displayedQuestions = pendingList;
+
+          return CustomScrollView(
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(widget.hPad, 16, widget.hPad, 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+                    decoration: BoxDecoration(
+                      color: AppTheme.black,
+                      borderRadius: BorderRadius.circular(32),
+                      border: Border.all(color: Colors.white.withOpacity(0.03), width: 1),
+                      boxShadow: [
+                        BoxShadow(color: gradeColor.withOpacity(0.05), blurRadius: 40, spreadRadius: 0)
+                      ]
+                    ),
+                    child: Column(
                       children: [
-                        Text('${(progress * 100).toInt()}', style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: AppTheme.textPrimary, height: 1.0)),
-                        const Padding(
-                          padding: EdgeInsets.only(bottom: 8.0, left: 4.0),
-                          child: Text('%', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white54)),
+                        const Text('SUBJECT READINESS', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 3.0)),
+                        const SizedBox(height: 32),
+                        SizedBox(
+                          width: 180,
+                          height: 180,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Container(
+                                width: 180, height: 180,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [BoxShadow(color: gradeColor.withOpacity(0.15), blurRadius: 30, spreadRadius: -5)]
+                                )
+                              ),
+                              SizedBox.expand(
+                                child: CircularProgressIndicator(
+                                  value: progress,
+                                  strokeWidth: 12,
+                                  backgroundColor: Colors.black.withOpacity(0.3),
+                                  color: gradeColor,
+                                  strokeCap: StrokeCap.round,
+                                ),
+                              ),
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    grade,
+                                    style: GoogleFonts.rubikMonoOne(
+                                      fontSize: 64, 
+                                      color: gradeColor,
+                                      height: 1.1,
+                                      shadows: [Shadow(color: gradeColor.withOpacity(0.5), blurRadius: 20)]
+                                    ),
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                                    textBaseline: TextBaseline.alphabetic,
+                                    children: [
+                                      Text('${(progress * 100).toInt()}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppTheme.textPrimary)),
+                                      const Text('%', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white54)),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 24),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 12,
-                        backgroundColor: AppTheme.selectedTile,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: _PremiumStatCard(label: 'SECURED', value: '$completed', color: AppTheme.completedColor)),
-                  const SizedBox(width: 16),
-                  Expanded(child: _PremiumStatCard(label: 'REVISE', value: '$revisionNeeded', color: AppTheme.inProgressColor)),
-                  const SizedBox(width: 16),
-                  Expanded(child: _PremiumStatCard(label: 'PENDING', value: '$incomplete', color: AppTheme.textSecondary)),
-                ],
+              
+              // Interactive Tabs
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: widget.hPad),
+                  child: Container(
+                    height: 56, // Fixed height for iOS picker
+                    decoration: BoxDecoration(
+                      color: AppTheme.black, // OLED black background
+                      borderRadius: BorderRadius.circular(100), // Pill shape
+                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    ),
+                    child: Stack(
+                      children: [
+                        // Sliding Thumb
+                        AnimatedAlign(
+                          alignment: Alignment(
+                            _selectedTab == 0 ? -1.0 : (_selectedTab == 1 ? 0.0 : 1.0),
+                            0.0,
+                          ),
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeOutCubic,
+                          child: FractionallySizedBox(
+                            widthFactor: 1.0 / 3.0,
+                            heightFactor: 1.0,
+                            child: Padding(
+                              padding: const EdgeInsets.all(4.0),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: _selectedTab == 0 
+                                      ? AppTheme.completedColor.withOpacity(0.15) 
+                                      : (_selectedTab == 1 ? AppTheme.inProgressColor.withOpacity(0.15) : Colors.white.withOpacity(0.1)),
+                                  borderRadius: BorderRadius.circular(100),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Segments
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildCustomSegment(
+                              label: 'SECURED',
+                              count: '${securedList.length}',
+                              isSelected: _selectedTab == 0,
+                              activeColor: AppTheme.completedColor,
+                              onTap: () => setState(() => _selectedTab = 0),
+                            ),
+                            _buildCustomSegment(
+                              label: 'REVISE',
+                              count: '${reviseList.length}',
+                              isSelected: _selectedTab == 1,
+                              activeColor: AppTheme.inProgressColor,
+                              onTap: () => setState(() => _selectedTab = 1),
+                            ),
+                            _buildCustomSegment(
+                              label: 'PENDING',
+                              count: '${pendingList.length}',
+                              isSelected: _selectedTab == 2,
+                              activeColor: Colors.white,
+                              onTap: () => setState(() => _selectedTab = 2),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              
+              // Question List
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(widget.hPad, 0, widget.hPad, 120),
+                sliver: displayedQuestions.isEmpty 
+                  ? const SliverToBoxAdapter(
+                      child: Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32.0),
+                          child: Text('No targets in this category.', style: TextStyle(color: Colors.white30, fontSize: 14)),
+                        )
+                      )
+                    )
+                  : SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final q = displayedQuestions[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8.0),
+                            child: _QuestionItemTile(q: q), // Assume a simple tile
+                          );
+                        },
+                        childCount: displayedQuestions.length,
+                      ),
+                    ),
               ),
             ],
           );
@@ -396,28 +640,68 @@ class _CourseReadinessView extends ConsumerWidget {
   }
 }
 
-class _PremiumStatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  const _PremiumStatCard({required this.label, required this.value, required this.color});
+class _QuestionItemTile extends StatelessWidget {
+  final Question q;
+  const _QuestionItemTile({required this.q});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05), width: 1),
-      ),
-      child: Column(
-        children: [
-          Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: color)),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppTheme.textSecondary, letterSpacing: 1.5)),
-        ],
+    Color statusColor = AppTheme.textSecondary;
+    IconData icon = Icons.circle_outlined;
+    if (q.status == QuestionStatus.completed) {
+      statusColor = AppTheme.completedColor;
+      icon = Icons.check_circle;
+    } else if (q.status == QuestionStatus.revisionNeeded) {
+      statusColor = AppTheme.inProgressColor;
+      icon = Icons.change_circle;
+    }
+
+    return InkWell(
+      onTap: () => context.push('/question/${q.id}'),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.black,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.05)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: statusColor, size: 20),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                q.title.replaceAll(RegExp(r'[★☆]'), '').trim(),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white24, size: 20),
+          ],
+        ),
       ),
     );
+  }
+}
+
+
+class _KeepAliveTab extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveTab({required this.child});
+
+  @override
+  State<_KeepAliveTab> createState() => _KeepAliveTabState();
+}
+
+class _KeepAliveTabState extends State<_KeepAliveTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

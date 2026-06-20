@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'dart:math' as math;
 import 'package:isar/isar.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
@@ -95,7 +96,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                     DateFormat('MMMM').format(focused),
                     style: const TextStyle(
                       fontSize: 26,
-                      fontWeight: FontWeight.w300,
+                      fontWeight: FontWeight.w800,
                       color: AppTheme.textPrimary,
                       letterSpacing: -0.5,
                     ),
@@ -105,7 +106,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                     DateFormat('yyyy').format(focused),
                     style: const TextStyle(
                       fontSize: 26, // Matched with month
-                      fontWeight: FontWeight.w300,
+                      fontWeight: FontWeight.w800,
                       color: Color(0xFF6E6E73), // Lighter color
                       letterSpacing: 0.5,
                     ),
@@ -121,7 +122,10 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
           child: Padding(
             padding: EdgeInsets.fromLTRB(hPad, 24.0, hPad, 0),
             child: SingleChildScrollView(
-              child: TableCalendar(
+              child: Center(
+                    child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 800),
+                      child: TableCalendar(
               firstDay: DateTime.utc(2020, 1, 1),
               lastDay: DateTime.utc(2030, 12, 31),
               focusedDay: focused,
@@ -131,7 +135,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                 });
               },
               calendarFormat: CalendarFormat.month,
-              rowHeight: 75.0,
+              rowHeight: math.min(85.0, MediaQuery.of(context).size.height / 10).clamp(50.0, 85.0),
               daysOfWeekHeight: 20.0,
               headerVisible: false,
               availableGestures: AvailableGestures.horizontalSwipe,
@@ -202,7 +206,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
               onDayLongPressed: (selectedDay, focusedDay) {
                 _showDayEditor(context, selectedDay, byDay, isar);
               },
-            ),
+            ))),
             ),
           ),
         ),

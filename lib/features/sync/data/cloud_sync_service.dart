@@ -49,21 +49,30 @@ class CloudSyncService {
       'examStrategy': c.examStrategy,
     }).toList();
 
-    final unitsMap = units.map((u) => {
-      'id': u.id,
-      'name': u.name,
-      'index': u.index,
-      'course_id': u.course.value?.id,
-    }).toList();
+    final unitsMap = <Map<String, dynamic>>[];
+    for (final u in units) {
+      await u.course.load();
+      unitsMap.add({
+        'id': u.id,
+        'name': u.name,
+        'index': u.index,
+        'course_id': u.course.value?.id,
+      });
+    }
 
-    final topicsMap = topics.map((t) => {
-      'id': t.id,
-      'name': t.name,
-      'unit_id': t.unit.value?.id,
-    }).toList();
+    final topicsMap = <Map<String, dynamic>>[];
+    for (final t in topics) {
+      await t.unit.load();
+      topicsMap.add({
+        'id': t.id,
+        'name': t.name,
+        'unit_id': t.unit.value?.id,
+      });
+    }
 
     final questionsMap = <Map<String, dynamic>>[];
     for (final q in questions) {
+      await q.unitLink.load();
       final qMap = {
         'id': q.id,
         'title': q.title,
@@ -89,7 +98,8 @@ class CloudSyncService {
           } else {
             final file = File(path);
             if (!await file.exists()) {
-              throw Exception('Attached image file missing from device: $path. Please delete and re-attach it before backing up.');
+              // Gracefully skip missing images instead of failing the entire backup
+              continue;
             }
             
             final imageBytes = await file.readAsBytes();

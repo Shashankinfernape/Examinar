@@ -28,59 +28,74 @@ GoRouter router(RouterRef ref) {
         path: '/',
         builder: (context, state) => const SplashScreen(),
       ),
-      ShellRoute(
-        navigatorKey: _shellNavigatorKey,
-        builder: (context, state, child) {
-          return MainScaffold(child: child);
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return MainScaffold(navigationShell: navigationShell);
         },
-        routes: [
-          GoRoute(
-            path: '/home',
-            builder: (context, state) => const HomeScreen(),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/home',
+                builder: (context, state) => const HomeScreen(),
+              ),
+            ],
           ),
-          GoRoute(
-            path: '/courses',
-            builder: (context, state) => const CoursesScreen(),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/courses',
+                builder: (context, state) => const CoursesScreen(),
+              ),
+              GoRoute(
+                path: '/question/:id',
+                builder: (context, state) {
+                  final id = int.parse(state.pathParameters['id']!);
+                  return QuestionDetailScreen(questionId: id);
+                },
+              ),
+              GoRoute(
+                path: '/course/:id',
+                builder: (context, state) {
+                  final id = int.parse(state.pathParameters['id']!);
+                  return CourseDetailScreen(courseId: id);
+                },
+              ),
+              GoRoute(
+                path: '/unit/:id',
+                builder: (context, state) {
+                  final id = int.parse(state.pathParameters['id']!);
+                  return UnitDetailsScreen(unitId: id);
+                },
+              ),
+              GoRoute(
+                path: '/revision-loop',
+                builder: (context, state) {
+                  final ids = state.extra as List<int>;
+                  return RevisionLoopScreen(questionIds: ids);
+                },
+              ),
+            ],
           ),
-          GoRoute(
-            path: '/planner',
-            builder: (context, state) => const PlannerScreen(),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/planner',
+                builder: (context, state) => const PlannerScreen(),
+              ),
+              GoRoute(
+                path: '/planner/day',
+                builder: (context, state) => const DayScheduleScreen(),
+              ),
+            ],
           ),
-          GoRoute(
-            path: '/planner/day',
-            builder: (context, state) => const DayScheduleScreen(),
-          ),
-          GoRoute(
-            path: '/profile',
-            builder: (context, state) => const ProfileScreen(),
-          ),
-          GoRoute(
-            path: '/question/:id',
-            builder: (context, state) {
-              final id = int.parse(state.pathParameters['id']!);
-              return QuestionDetailScreen(questionId: id);
-            },
-          ),
-          GoRoute(
-            path: '/course/:id',
-            builder: (context, state) {
-              final id = int.parse(state.pathParameters['id']!);
-              return CourseDetailScreen(courseId: id);
-            },
-          ),
-          GoRoute(
-            path: '/unit/:id',
-            builder: (context, state) {
-              final id = int.parse(state.pathParameters['id']!);
-              return UnitDetailsScreen(unitId: id);
-            },
-          ),
-          GoRoute(
-            path: '/revision-loop',
-            builder: (context, state) {
-              final ids = state.extra as List<int>;
-              return RevisionLoopScreen(questionIds: ids);
-            },
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/profile',
+                builder: (context, state) => const ProfileScreen(),
+              ),
+            ],
           ),
         ],
       ),

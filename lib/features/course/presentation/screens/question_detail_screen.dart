@@ -7,7 +7,13 @@ import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'dart:io' as io;
+import 'dart:async';
 import '../widgets/difficulty_stars.dart';
+import 'package:pasteboard/pasteboard.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/cupertino.dart';
 
 class QuestionDetailScreen extends ConsumerStatefulWidget {
   final int questionId;
@@ -20,13 +26,39 @@ class QuestionDetailScreen extends ConsumerStatefulWidget {
 
 class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   final _notesController = TextEditingController();
-  bool _isEditingNotes = false;
+  final _questionController = TextEditingController();
+  bool _hasInitializedNotes = false;
+  bool _hasInitializedQuestion = false;
   bool _isDragging = false;
+  Timer? _debounce;
+  Timer? _questionDebounce;
+  Question? _currentQuestion;
 
   @override
   void dispose() {
+    if (_debounce?.isActive ?? false) {
+      _debounce!.cancel();
+      if (_currentQuestion != null) {
+        _saveNotes(_currentQuestion!, text: _notesController.text, silent: true);
+      }
+    }
+    if (_questionDebounce?.isActive ?? false) {
+      _questionDebounce!.cancel();
+      if (_currentQuestion != null) {
+        _saveQuestionNotes(_currentQuestion!, text: _questionController.text, silent: true);
+      }
+    }
     _notesController.dispose();
+    _questionController.dispose();
     super.dispose();
+  }
+
+  Future<String> _saveFilePermanently(List<int> bytes, String extension) async {
+    final docsDir = await getApplicationDocumentsDirectory();
+    final fileName = '${const Uuid().v4()}.$extension';
+    final savedFile = io.File('${docsDir.path}/$fileName');
+    await savedFile.writeAsBytes(bytes);
+    return savedFile.path;
   }
 
   @override
@@ -43,8 +75,10 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           final question = snapshot.data;
           if (question == null) return const Scaffold(body: Center(child: Text('Objective not found')));
           
-          if (!_isEditingNotes) {
+          _currentQuestion = question;
+          if (!_hasInitializedNotes) {
             _notesController.text = question.userNotes ?? '';
+            _hasInitializedNotes = true;
           }
 
           String bannerTitle = question.title;
@@ -53,23 +87,51 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             isPartA = true;
             bannerTitle = 'PART A';
           }
+          
+          if (!_hasInitializedQuestion) {
+            String initialText = question.notes ?? '';
+            if (isPartA && initialText.isEmpty) {
+              initialText = question.title.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '');
+            }
+            _questionController.text = initialText;
+            _hasInitializedQuestion = true;
+          }
 
           return DropTarget(
             onDragDone: (detail) async {
               setState(() => _isDragging = false);
               if (detail.files.isEmpty) return;
               
+              final orderedFiles = io.Platform.isWindows ? detail.files.reversed.toList() : detail.files.toList();
+              
+              final docsDir = await getApplicationDocumentsDirectory();
+              final newPaths = <String>[];
+              
+              for (final file in orderedFiles) {
+                try {
+                  String ext = 'jpg';
+                  final lowerPath = file.path.toLowerCase();
+                  if (lowerPath.endsWith('.png')) ext = 'png';
+                  else if (lowerPath.endsWith('.webp')) ext = 'webp';
+                  
+                  final fileName = '${const Uuid().v4()}.$ext';
+                  final destPath = '${docsDir.path}/$fileName';
+                  
+                  await file.saveTo(destPath);
+                  newPaths.add(destPath);
+                } catch (e) {
+                  debugPrint('Failed to save dropped file: $e');
+                }
+              }
+              
+              if (newPaths.isEmpty) return;
+
               final repo = await ref.read(questionRepositoryProvider.future);
               await repo.isar.writeTxn(() async {
                 final q = await repo.isar.questions.get(widget.questionId);
                 if (q != null) {
                   final images = List<String>.from(q.images ?? []);
-                  for (final file in detail.files) {
-                    final p = file.path.toLowerCase();
-                    if (p.endsWith('.jpg') || p.endsWith('.jpeg') || p.endsWith('.png') || p.endsWith('.webp')) {
-                      images.add(file.path);
-                    }
-                  }
+                  images.addAll(newPaths);
                   q.images = images;
                   await repo.isar.collection<Question>().put(q);
                 }
@@ -112,8 +174,9 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                             DifficultyStars(question: question, size: 24),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Text('MISSION OBJECTIVE DETAILS', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                        const Text('MISSION OBJECTIVE DETAILS', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                        const SizedBox(height: 16),
+                        _buildIOSSegmentedControl(context, question),
                       ],
                     ),
                   ),
@@ -123,44 +186,33 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                   padding: EdgeInsets.symmetric(horizontal: hPad),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      // 1. STATUS CARD
-                      _buildOneUICard(
-                        title: 'Operational Status',
-                        child: Row(
-                          children: [
-                            _statusPill(context, question, QuestionStatus.incomplete, 'PENDING', Icons.radio_button_unchecked, AppTheme.textSecondary),
-                            const SizedBox(width: 8),
-                            _statusPill(context, question, QuestionStatus.revisionNeeded, 'REVISE', Icons.autorenew, AppTheme.inProgressColor),
-                            const SizedBox(width: 8),
-                            _statusPill(context, question, QuestionStatus.completed, 'COMPLETED', Icons.verified, AppTheme.completedColor),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      const SizedBox(height: 16),
-
                       // 3. QUESTION CARD (AI Analysis Leftovers)
                       _buildOneUICard(
                         title: 'Question',
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: AppTheme.black.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(16),
+                        padding: const EdgeInsets.all(16),
+                        child: TextField(
+                          controller: _questionController,
+                          maxLines: null,
+                          minLines: 1,
+                          style: GoogleFonts.inter(
+                            fontSize: 15, 
+                            fontWeight: FontWeight.w400, 
+                            color: AppTheme.textPrimary, 
+                            height: 1.6,
                           ),
-                          child: Text(
-                            isPartA 
-                              ? '${question.title.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '')}\n\n${question.notes ?? ""}'.trim()
-                              : (question.notes?.isEmpty ?? true ? 'No question details available.' : question.notes!),
-                            style: TextStyle(
-                              fontSize: 15, 
-                              height: 1.5, 
-                              color: isPartA ? AppTheme.textPrimary : (question.notes?.isEmpty ?? true ? AppTheme.textSecondary : AppTheme.textPrimary),
-                              fontWeight: FontWeight.w500,
-                            ),
+                          onChanged: (val) {
+                            if (_questionDebounce?.isActive ?? false) _questionDebounce!.cancel();
+                            _questionDebounce = Timer(const Duration(milliseconds: 300), () {
+                              _saveQuestionNotes(question, text: val, silent: true);
+                            });
+                          },
+                          decoration: InputDecoration(
+                            hintText: 'Paste or type question details here...',
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: AppTheme.black.withOpacity(0.4),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                            contentPadding: const EdgeInsets.all(12),
                           ),
                         ),
                       ),
@@ -169,62 +221,33 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
 
                       // 4. NOTES CARD (User Notepad)
                       _buildOneUICard(
-                        title: 'Notes',
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_isEditingNotes)
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: AppTheme.urgentColor, size: 24),
-                                onPressed: () {
-                                  _notesController.clear();
-                                  _saveNotes(question);
-                                  setState(() => _isEditingNotes = false);
-                                },
-                              ),
-                            if (_isEditingNotes)
-                              IconButton(
-                                icon: const Icon(Icons.check_circle, color: Colors.white, size: 24),
-                                onPressed: () {
-                                  _saveNotes(question);
-                                  setState(() => _isEditingNotes = false);
-                                },
-                              ),
-                          ],
+                        title: 'Notebook',
+                        padding: const EdgeInsets.all(16),
+                        child: TextField(
+                          controller: _notesController,
+                          maxLines: null,
+                          minLines: 1,
+                          style: GoogleFonts.inter(
+                            fontSize: 15, 
+                            fontWeight: FontWeight.w400, 
+                            color: AppTheme.textPrimary, 
+                            height: 1.6,
+                          ),
+                          onChanged: (val) {
+                            if (_debounce?.isActive ?? false) _debounce!.cancel();
+                            _debounce = Timer(const Duration(milliseconds: 300), () {
+                              _saveNotes(question, text: val, silent: true);
+                            });
+                          },
+                          decoration: InputDecoration(
+                            hintText: 'Paste or type your notes here...',
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: AppTheme.black.withOpacity(0.4),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                            contentPadding: const EdgeInsets.all(12),
+                          ),
                         ),
-                        child: _isEditingNotes
-                          ? TextField(
-                              controller: _notesController,
-                              maxLines: null,
-                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                              decoration: InputDecoration(
-                                hintText: 'Input notes...',
-                                filled: true,
-                                fillColor: AppTheme.black.withOpacity(0.4),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                                contentPadding: const EdgeInsets.all(16),
-                              ),
-                            )
-                          : GestureDetector(
-                              onDoubleTap: () => setState(() => _isEditingNotes = true),
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(20),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.black.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Text(
-                                  question.userNotes?.isEmpty ?? true ? 'No notes available. Double tap to edit.' : question.userNotes!,
-                                  style: TextStyle(
-                                    fontSize: 15, 
-                                    height: 1.5, 
-                                    color: question.userNotes?.isEmpty ?? true ? AppTheme.textSecondary : AppTheme.textPrimary,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ),
                       ),
 
                       const SizedBox(height: 16),
@@ -328,9 +351,9 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     );
   }
 
-  Widget _buildOneUICard({required String title, required Widget child, Widget? trailing}) {
+  Widget _buildOneUICard({required String title, required Widget child, Widget? trailing, EdgeInsetsGeometry? padding}) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: padding ?? const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.transparent, // Flat design
         borderRadius: BorderRadius.circular(AppTheme.cardRadius),
@@ -398,31 +421,112 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     );
   }
 
-  Widget _statusPill(BuildContext context, Question question, QuestionStatus status, String label, IconData icon, Color color) {
-    final isSelected = question.status == status;
-    return Expanded(
-      child: InkWell(
-        onTap: () => _updateStatus(status),
-        borderRadius: BorderRadius.circular(16),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
-            border: Border.all(color: isSelected ? Colors.white : Colors.white24, width: 1.5),
-            borderRadius: BorderRadius.circular(16),
+  Widget _buildIOSSegmentedControl(BuildContext context, Question question) {
+    int selectedIndex = 0;
+    if (question.status == QuestionStatus.revisionNeeded) selectedIndex = 1;
+    if (question.status == QuestionStatus.completed) selectedIndex = 2;
+
+    Color thumbColor;
+    switch (question.status) {
+      case QuestionStatus.completed:
+        thumbColor = AppTheme.completedColor.withOpacity(0.25);
+        break;
+      case QuestionStatus.revisionNeeded:
+        thumbColor = AppTheme.inProgressColor.withOpacity(0.25);
+        break;
+      case QuestionStatus.incomplete:
+      default:
+        thumbColor = Colors.white.withOpacity(0.2);
+        break;
+    }
+
+    return Container(
+      width: double.infinity,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Stack(
+        children: [
+          // Sliding Thumb
+          AnimatedAlign(
+            alignment: Alignment(
+              selectedIndex == 0 ? -1.0 : (selectedIndex == 1 ? 0.0 : 1.0),
+              0.0,
+            ),
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+            child: FractionallySizedBox(
+              widthFactor: 1.0 / 3.0,
+              heightFactor: 1.0,
+              child: Padding(
+                padding: const EdgeInsets.all(2.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: thumbColor,
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                ),
+              ),
+            ),
           ),
-          child: Column(
+          // Segments
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(icon, color: isSelected ? Colors.black : Colors.white54, size: 24),
-              const SizedBox(height: 8),
+              _buildCustomSegment(
+                label: 'PENDING',
+                icon: Icons.radio_button_unchecked,
+                isSelected: question.status == QuestionStatus.incomplete,
+                activeColor: Colors.white,
+                onTap: () => _updateStatus(QuestionStatus.incomplete),
+              ),
+              _buildCustomSegment(
+                label: 'REVISE',
+                icon: Icons.autorenew,
+                isSelected: question.status == QuestionStatus.revisionNeeded,
+                activeColor: AppTheme.inProgressColor,
+                onTap: () => _updateStatus(QuestionStatus.revisionNeeded),
+              ),
+              _buildCustomSegment(
+                label: 'COMPLETED',
+                icon: Icons.verified,
+                isSelected: question.status == QuestionStatus.completed,
+                activeColor: AppTheme.completedColor,
+                onTap: () => _updateStatus(QuestionStatus.completed),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomSegment({
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+    required Color activeColor,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          color: Colors.transparent,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 12, color: isSelected ? activeColor : Colors.white54),
+              const SizedBox(width: 4),
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  color: isSelected ? Colors.black : Colors.white54,
+                  fontWeight: FontWeight.w800,
+                  color: isSelected ? activeColor : Colors.white54,
                   letterSpacing: 0.5,
                 ),
               ),
@@ -433,19 +537,42 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     );
   }
 
+  Color _getStatusThumbColor(QuestionStatus status) {
+    switch (status) {
+      case QuestionStatus.completed:
+        return AppTheme.completedColor.withOpacity(0.25);
+      case QuestionStatus.revisionNeeded:
+        return AppTheme.inProgressColor.withOpacity(0.25);
+      case QuestionStatus.incomplete:
+      default:
+        return Colors.white.withOpacity(0.2);
+    }
+  }
+
   void _updateStatus(QuestionStatus status) async {
     final repo = await ref.read(questionRepositoryProvider.future);
     await repo.updateStatus(widget.questionId, status);
     HapticFeedback.mediumImpact();
   }
 
-  void _saveNotes(Question question) async {
+  void _saveNotes(Question question, {String? text, bool silent = false}) async {
+    final textToSave = text ?? _notesController.text;
     final repo = await ref.read(questionRepositoryProvider.future);
     await repo.isar.writeTxn(() async {
-      question.userNotes = _notesController.text;
+      question.userNotes = textToSave;
       await repo.isar.collection<Question>().put(question);
     });
-    HapticFeedback.vibrate();
+    if (!silent) HapticFeedback.vibrate();
+  }
+
+  void _saveQuestionNotes(Question question, {String? text, bool silent = false}) async {
+    final textToSave = text ?? _questionController.text;
+    final repo = await ref.read(questionRepositoryProvider.future);
+    await repo.isar.writeTxn(() async {
+      question.notes = textToSave;
+      await repo.isar.collection<Question>().put(question);
+    });
+    if (!silent) HapticFeedback.vibrate();
   }
 
   void _showAttachmentOptions(BuildContext context, Question question) {
@@ -472,6 +599,10 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                 Navigator.pop(context);
                 _attachMedia(question, ImageSource.gallery);
               }),
+              _attachmentOption(Icons.content_paste_outlined, 'PASTE IMAGE', () {
+                Navigator.pop(context);
+                _pasteImage(question);
+              }),
             ],
           ),
         ),
@@ -495,11 +626,13 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     if (source == ImageSource.camera) {
       final image = await picker.pickImage(source: source);
       if (image != null) {
+        final bytes = await image.readAsBytes();
+        final savedPath = await _saveFilePermanently(bytes, 'jpg');
         await repo.isar.writeTxn(() async {
           final q = await repo.isar.questions.get(question.id);
           if (q != null) {
             final images = List<String>.from(q.images ?? []);
-            images.add(image.path);
+            images.add(savedPath);
             q.images = images;
             await repo.isar.questions.put(q);
           }
@@ -509,19 +642,78 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     } else {
       final List<XFile> imagesList = await picker.pickMultiImage();
       if (imagesList.isNotEmpty) {
+        final newPaths = <String>[];
+        final orderedImages = io.Platform.isWindows ? imagesList.reversed.toList() : imagesList.toList();
+        for (var img in orderedImages) {
+          final bytes = await img.readAsBytes();
+          final p = await _saveFilePermanently(bytes, 'jpg');
+          newPaths.add(p);
+        }
         await repo.isar.writeTxn(() async {
           final q = await repo.isar.questions.get(question.id);
           if (q != null) {
             final images = List<String>.from(q.images ?? []);
-            for (var img in imagesList) {
-              images.add(img.path);
-            }
+            images.addAll(newPaths);
             q.images = images;
             await repo.isar.questions.put(q);
           }
         });
         HapticFeedback.vibrate();
       }
+    }
+  }
+
+  void _pasteImage(Question question) async {
+    final repo = await ref.read(questionRepositoryProvider.future);
+    
+    // 1. Try pasting raw image bytes (e.g., from Snipping Tool)
+    final imageBytes = await Pasteboard.image;
+    if (imageBytes != null && imageBytes.isNotEmpty) {
+      final savedPath = await _saveFilePermanently(imageBytes, 'jpg');
+      await repo.isar.writeTxn(() async {
+        final q = await repo.isar.questions.get(question.id);
+        if (q != null) {
+          final images = List<String>.from(q.images ?? []);
+          images.add(savedPath);
+          q.images = images;
+          await repo.isar.questions.put(q);
+        }
+      });
+      HapticFeedback.vibrate();
+      return;
+    }
+    
+    // 2. Try pasting copied files (e.g., from Windows Explorer)
+    final files = await Pasteboard.files();
+    if (files.isNotEmpty) {
+      final validPaths = <String>[];
+      for (final p in files) {
+        final lower = p.toLowerCase();
+        if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
+          validPaths.add(p);
+        }
+      }
+      
+      if (validPaths.isNotEmpty) {
+        final orderedPaths = io.Platform.isWindows ? validPaths.reversed.toList() : validPaths.toList();
+        await repo.isar.writeTxn(() async {
+          final q = await repo.isar.questions.get(question.id);
+          if (q != null) {
+            final images = List<String>.from(q.images ?? []);
+            images.addAll(orderedPaths);
+            q.images = images;
+            await repo.isar.questions.put(q);
+          }
+        });
+        HapticFeedback.vibrate();
+        return;
+      }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No image or valid file found in clipboard')),
+      );
     }
   }
 

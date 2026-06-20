@@ -26,16 +26,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
   double _headerOpacity = 1.0;
   Timer? _minuteTimer;
+  final Set<int> _dismissedTaskIds = {};
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(() {
-      final offset = _scrollController.offset;
-      setState(() {
-        _headerOpacity = (1 - (offset / 100)).clamp(0.0, 1.0);
-      });
-    });
+
     _minuteTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) setState(() {});
     });
@@ -75,7 +71,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           builder: (context, snapshot) {
             final events = snapshot.data ?? [];
             final filteredEvents = events.where((e) => !e.title.startsWith('EXAM:')).toList();
-            final pendingTasks = filteredEvents.where((e) => !e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+            final pendingTasks = filteredEvents.where((e) => !e.isCompleted && !_dismissedTaskIds.contains(e.id)).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
             final completedTasks = filteredEvents.where((e) => e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
 
             return Scaffold(
@@ -273,8 +269,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 movementDuration: const Duration(milliseconds: 600),
                 resizeDuration: const Duration(milliseconds: 500),
                 dismissThresholds: const {DismissDirection.startToEnd: 0.3},
-                onDismissed: (_) async {
-                   await isar.writeTxn(() async {
+                onDismissed: (_) {
+                   setState(() {
+                     _dismissedTaskIds.add(task.id);
+                   });
+                   isar.writeTxn(() async {
                       task.isCompleted = true;
                       await isar.plannerEvents.put(task);
 
