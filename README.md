@@ -12,19 +12,19 @@
 
 ---
 
-## Downloads & Installation
+## Downloads & Platform Availability
 
-Pre-compiled application packages are available directly in this repository for all supported operating systems:
+Pre-compiled production binaries are provided directly in this repository for supported host environments. For platforms requiring host-native compilation (macOS, Linux, iOS), build commands and automated CI configuration are documented below:
 
-| Operating System | Package Format | Direct Download Link | Format |
+| Platform | Package Format | Binary Status | Installation / Build Command |
 | :--- | :--- | :--- | :--- |
-| **Android** | APK Package | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | `.apk` |
-| **Windows** | MSIX Installer | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | `.msix` |
-| **macOS** | macOS DMG | [**Examinar-macOS.dmg**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-macOS.dmg) | `.dmg` |
-| **Linux** | Linux Archive | [**Examinar-Linux.tar.gz**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Linux.tar.gz) | `.tar.gz` |
-| **iOS** | iOS IPA | [**Examinar-iOS.ipa**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-iOS.ipa) | `.ipa` |
+| **Android** | APK Package | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | Direct `.apk` Install (`60.5 MB`) |
+| **Windows** | MSIX Package | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | Signed `.msix` Installer (`25.1 MB`) |
+| **macOS** | Desktop Bundle | *Compile on macOS Host* | `flutter build macos --release` |
+| **Linux** | Native Package | *Compile on Linux Host* | `flutter build linux --release` |
+| **iOS** | iOS Package | *Compile on macOS Host* | `flutter build ipa --release` |
 
-> All pre-compiled binary packages are stored directly in the [`/releases`](./releases) directory.
+> *Note on Multi-Platform Builds:* Flutter requires platform-native compilers (Xcode for macOS/iOS, GTK/GCC for Linux, MSVC/Gradle for Windows/Android). Pre-compiled binaries for Android and Windows are built and served directly from this repository under [`/releases`](./releases).
 
 ---
 
