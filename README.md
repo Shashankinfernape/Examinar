@@ -13,6 +13,19 @@
   ---
 </div>
 
+## 📥 Direct Downloads & Installers
+
+Easily download and install **Examinar** directly from the repository:
+
+| Platform | Download Link | File Format |
+| :--- | :--- | :--- |
+| 📱 **Android** | [**Download Examinar APK**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | `.apk` (Direct Install) |
+| 💻 **Windows** | [**Download Examinar Installer**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | `.msix` (Windows Package) |
+
+*You can also find the raw installer files directly in the [`/releases`](./releases) directory of this repository.*
+
+---
+
 ## 🌌 Overview
 
 **Examinar** (formerly Exam Command Center) is an ultra-sleek, responsive academic tracker. It rejects flat designs and standard templates, opting instead for a premium, high-contrast, pure black-and-white aesthetic with deeply layered tonal depth. It is built to organize study units, mathematically chunk daily tasks, and visually track your progress toward major exam dates.
