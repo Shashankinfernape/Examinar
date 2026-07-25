@@ -269,12 +269,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 movementDuration: const Duration(milliseconds: 600),
                 resizeDuration: const Duration(milliseconds: 500),
                 dismissThresholds: const {DismissDirection.startToEnd: 0.3},
-                onDismissed: (_) {
+                onDismissed: (_) async {
+                   task.isCompleted = true;
                    setState(() {
                      _dismissedTaskIds.add(task.id);
                    });
-                   isar.writeTxn(() async {
-                      task.isCompleted = true;
+                   await isar.writeTxn(() async {
                       await isar.plannerEvents.put(task);
 
                       if (task.questionIds != null && task.questionIds!.isNotEmpty) {
@@ -287,6 +287,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         }
                       }
                    });
+                   if (mounted) {
+                     setState(() {});
+                   }
                 },
                 background: Container(
                   decoration: const BoxDecoration(
