@@ -1,76 +1,97 @@
 <div align="center">
-  <br />
-    <img src="assets/examinar_logo.png" alt="Examinar Logo" width="150"/>
-  <br />
+  <img src="assets/examinar_logo.png" alt="Examinar Logo" width="120"/>
+  <h1>Examinar</h1>
+  <p><strong>A high-performance academic tracker and task allocation system built with Flutter & Isar.</strong></p>
 
-  # **EXAMINAR**
-  **Your Ultimate Academic Command Center**
-
-  <p align="center">
-    A premium, dark-mode specialized Flutter application designed for maximum focus, dynamic tracking, and AI-driven academic analysis. 
+  <p>
+    <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" alt="Flutter"/></a>
+    <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-3.x-0175C2?logo=dart&logoColor=white" alt="Dart"/></a>
+    <a href="https://isar.dev"><img src="https://img.shields.io/badge/Isar-NoSQL-42A5F5" alt="Isar"/></a>
   </p>
-
-  ---
 </div>
 
-## 📥 Direct Downloads & Installers
+---
 
-Easily download and install **Examinar** directly from the repository:
+## Downloads & Installation
 
-| Platform | Download Link | File Format |
+Pre-compiled binary releases are available directly from this repository for rapid deployment:
+
+| Platform | Package | Download Link | Build Output |
+| :--- | :--- | :--- | :--- |
+| **Android** | APK Installer | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | Direct APK |
+| **Windows** | MSIX Package | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | Signed MSIX Installer |
+
+> Local binaries can also be inspected directly under the [`/releases`](./releases) directory.
+
+---
+
+## Technical Overview
+
+Examinar is a specialized application designed for curriculum tracking, structured study unit organization, and daily schedule generation leading up to major examinations.
+
+Unlike typical task managers, Examinar implements an automated task-chunking engine that distributes question units across target study hours while isolating high-priority exam dates onto a dedicated calendar layer.
+
+### Key Capabilities
+
+- **Mathematical Schedule Allocation:** Distributes target question sets across designated time blocks using a balanced partitioning algorithm:
+  $$\text{Base} = \left\lfloor \frac{M}{N} \right\rfloor$$
+  where $M$ represents total questions and $N$ represents allocated hours.
+- **Embedded Isar Engine:** Utilizes Isar's zero-copy NoSQL database architecture for real-time reactivity and local persistence.
+- **Dual-Layered Calendar Isolation:** Separates routine daily study events from core examination milestones to prevent calendar grid bloat.
+- **Adaptive Layout Engine:** Dynamically transitions between a unified vertical layout on mobile devices ($w \le 720\text{px}$) and a multi-column responsive grid on tablet viewports ($w > 720\text{px}$).
+
+---
+
+## Architecture & Stack
+
+| Component | Technology | Purpose |
 | :--- | :--- | :--- |
-| 📱 **Android** | [**Download Examinar APK**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | `.apk` (Direct Install) |
-| 💻 **Windows** | [**Download Examinar Installer**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | `.msix` (Windows Package) |
+| **Framework** | Flutter / Dart | Cross-platform client application |
+| **Persistence** | Isar Database | Reactive, embedded NoSQL engine |
+| **State Management** | Riverpod | Reactive state graph and dependency injection |
+| **Calendar Engine** | Table Calendar | Custom high-priority exam grid |
+| **Routing** | GoRouter | Declarative path-based navigation |
 
-*You can also find the raw installer files directly in the [`/releases`](./releases) directory of this repository.*
+---
+
+## Building from Source
+
+### Prerequisites
+
+- Flutter SDK (v3.24.0 or higher)
+- Dart SDK (v3.5.0 or higher)
+- C++ Build Tools (for Windows Desktop builds)
+
+### Setup & Compilation
+
+```bash
+# Clone the repository
+git clone https://github.com/Shashankinfernape/Examinar.git
+cd Examinar
+
+# Fetch dependencies
+flutter pub get
+
+# Run development target
+flutter run
+```
+
+### Production Package Builds
+
+```bash
+# Build Android APK
+flutter build apk --release
+
+# Build Windows MSIX Package
+dart run msix:create
+```
 
 ---
 
-## 🌌 Overview
+## Design System
 
-**Examinar** (formerly Exam Command Center) is an ultra-sleek, responsive academic tracker. It rejects flat designs and standard templates, opting instead for a premium, high-contrast, pure black-and-white aesthetic with deeply layered tonal depth. It is built to organize study units, mathematically chunk daily tasks, and visually track your progress toward major exam dates.
-
-## ⚡ Core Features
-
-- **🎓 Subject & Unit Management**: Organize your courses into specific, actionable units.
-- **🧠 AI Paper Analyzer**: A dedicated "Question Space" where you can paste AI-generated study scripts and resources for deep analysis.
-- **⏱️ Mathematical Schedule Wizard**: Dynamically chunk your daily tasks! The engine automatically calculates and distributes your questions across available time blocks ($Base = \lfloor M/N \rfloor$).
-- **📅 Exam Tracking Calendar**: A dedicated high-priority calendar that isolates Exam Dates from daily clutter.
-- **📱 Responsive Tablet Grid**: The UI fluidly adapts. On mobile, it's a sleek list; on tablets, it seamlessly morphs into a responsive grid system maximizing screen real estate.
-- **⚡ Instant Database**: Powered by `Isar`, an incredibly high-performance NoSQL database built for Flutter, ensuring real-time read/writes and instantaneous UI updates.
-
-## 🎨 The Aesthetic
-
-Examinar uses a strict, specialized design system:
-- **Base Canvas:** Deep Tonal Grey `#121212`.
-- **Elevated Surfaces:** `#252525`.
-- **Typography:** Custom weighted fonts, utilizing stark white and grey opacities to establish visual hierarchy without relying on aggressive colors.
-- **Zero Pixel Overflows:** Meticulously engineered containers and typography bounds to ensure the UI never breaks, regardless of keyboard states or screen dimensions.
-
-## 🛠️ Tech Stack
-
-- **Frontend:** Flutter & Dart
-- **State Management:** Riverpod
-- **Local Storage:** Isar Database
-- **Routing:** Go Router
-- **Calendar Engine:** Table Calendar
-
-## 🚀 Getting Started
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Shashankinfernape/Examinar.git
-   ```
-2. **Install Dependencies**
-   ```bash
-   flutter pub get
-   ```
-3. **Run the App**
-   ```bash
-   flutter run
-   ```
-
----
-<div align="center">
-  <i>Engineered for Focus. Designed for Excellence.</i>
-</div>
+The client UI adheres to a modern dark-mode design specification:
+- **Base Canvas:** Tonal Dark `#121212`
+- **Surface Elevation:** Layered `#252525`
+- **Primary Accent:** Samsung Blue (`#3E82F7`) and Premium Purple (`#1C54B2`)
+- **Typography:** Space Grotesk / Inter with strict container constraints preventing visual overflow under scaling.
