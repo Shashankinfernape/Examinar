@@ -12,19 +12,16 @@
 
 ---
 
-## Downloads & Platform Availability
+## Downloads & Installation
 
-Pre-compiled production binaries are provided directly in this repository for supported host environments. For platforms requiring host-native compilation (macOS, Linux, iOS), build commands and automated CI configuration are documented below:
+Pre-compiled production application packages are available directly in this repository:
 
-| Platform | Package Format | Binary Status | Installation / Build Command |
+| Platform | Package | Download Link | Build Output |
 | :--- | :--- | :--- | :--- |
-| **Android** | APK Package | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | Direct `.apk` Install (`60.5 MB`) |
-| **Windows** | MSIX Package | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | Signed `.msix` Installer (`25.1 MB`) |
-| **macOS** | Desktop Bundle | *Compile on macOS Host* | `flutter build macos --release` |
-| **Linux** | Native Package | *Compile on Linux Host* | `flutter build linux --release` |
-| **iOS** | iOS Package | *Compile on macOS Host* | `flutter build ipa --release` |
+| **Android** | APK Package | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | Direct `.apk` (`60.5 MB`) |
+| **Windows** | MSIX Installer | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | Signed `.msix` (`25.1 MB`) |
 
-> *Note on Multi-Platform Builds:* Flutter requires platform-native compilers (Xcode for macOS/iOS, GTK/GCC for Linux, MSVC/Gradle for Windows/Android). Pre-compiled binaries for Android and Windows are built and served directly from this repository under [`/releases`](./releases).
+> Both pre-compiled installer packages are stored directly in the [`/releases`](./releases) directory.
 
 ---
 
