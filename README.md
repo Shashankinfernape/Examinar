@@ -12,19 +12,19 @@
 
 ---
 
-## Platform Support & Downloads
+## Downloads & Installation
 
-Pre-compiled production binaries are provided directly in this repository for supported host environments, alongside source compilation support for all target operating systems:
+Pre-compiled application packages are available directly in this repository for all supported operating systems:
 
-| Operating System | Distribution Target | Download / Build Status | Build Command |
+| Operating System | Package Format | Direct Download Link | Format |
 | :--- | :--- | :--- | :--- |
-| **Android** | Direct APK Package | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | `flutter build apk --release` |
-| **Windows** | Signed MSIX Installer | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | `dart run msix:create` |
-| **macOS** | Desktop App Bundle | *Build from Source (macOS Host)* | `flutter build macos --release` |
-| **Linux** | Native Linux Binary | *Build from Source (Linux Host)* | `flutter build linux --release` |
-| **iOS** | iOS App Store / IPA | *Build from Source (macOS Host)* | `flutter build ipa --release` |
+| **Android** | APK Package | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | `.apk` |
+| **Windows** | MSIX Installer | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | `.msix` |
+| **macOS** | macOS DMG | [**Examinar-macOS.dmg**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-macOS.dmg) | `.dmg` |
+| **Linux** | Linux Archive | [**Examinar-Linux.tar.gz**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Linux.tar.gz) | `.tar.gz` |
+| **iOS** | iOS IPA | [**Examinar-iOS.ipa**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-iOS.ipa) | `.ipa` |
 
-> Pre-compiled binaries can also be inspected directly inside the [`/releases`](./releases) directory.
+> All pre-compiled binary packages are stored directly in the [`/releases`](./releases) directory.
 
 ---
 
