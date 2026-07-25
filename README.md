@@ -12,16 +12,19 @@
 
 ---
 
-## Downloads & Installation
+## Platform Support & Downloads
 
-Pre-compiled binary releases are available directly from this repository for rapid deployment:
+Pre-compiled production binaries are provided directly in this repository for supported host environments, alongside source compilation support for all target operating systems:
 
-| Platform | Package | Download Link | Build Output |
+| Operating System | Distribution Target | Download / Build Status | Build Command |
 | :--- | :--- | :--- | :--- |
-| **Android** | APK Installer | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | Direct APK |
-| **Windows** | MSIX Package | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | Signed MSIX Installer |
+| **Android** | Direct APK Package | [**Examinar-Android.apk**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Android.apk) | `flutter build apk --release` |
+| **Windows** | Signed MSIX Installer | [**Examinar-Windows.msix**](https://github.com/Shashankinfernape/Examinar/raw/main/releases/Examinar-Windows.msix) | `dart run msix:create` |
+| **macOS** | Desktop App Bundle | *Build from Source (macOS Host)* | `flutter build macos --release` |
+| **Linux** | Native Linux Binary | *Build from Source (Linux Host)* | `flutter build linux --release` |
+| **iOS** | iOS App Store / IPA | *Build from Source (macOS Host)* | `flutter build ipa --release` |
 
-> Local binaries can also be inspected directly under the [`/releases`](./releases) directory.
+> Pre-compiled binaries can also be inspected directly inside the [`/releases`](./releases) directory.
 
 ---
 
