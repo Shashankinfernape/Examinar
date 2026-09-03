@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/course_repository.dart';
 import '../../domain/models/unit.dart';
@@ -66,7 +68,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                   minLines: 3,
                   style: const TextStyle(color: Colors.white, fontSize: 14),
                   decoration: InputDecoration(
-                    hintText: 'Paste raw question paper text here...',
+                    hintText: 'Paste raw question paper OR ChatGPT output here...',
                     hintStyle: const TextStyle(color: Colors.white30),
                     filled: true,
                     fillColor: Colors.white.withOpacity(0.05),
@@ -76,17 +78,36 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: _isProcessing ? null : _processPaste,
-                  child: _isProcessing 
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                      : const Text('ANALYZE & BUILD CHECKLIST', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white24),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: _generatePrompt,
+                        child: const Text('GENERATE PROMPT', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: _isProcessing ? null : _processPaste,
+                        child: _isProcessing 
+                            ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                            : const Text('BUILD CHECKLIST', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5)),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
               ],
@@ -260,5 +281,93 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
+  }
+
+  void _generatePrompt() {
+    final text = _textController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please paste your raw questions first.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+
+    final prompt = '''I am providing you with my syllabus/past exam papers. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.
+
+FORMATTING RULES:
+1. Number short-answer questions from 1 to 10.
+2. Number main essay questions from 11 to 15 (one for each unit).
+3. Number the hardest application/case-study question as 16.
+4. Add 1 to 5 stars (⭐) at the end of the question title to indicate priority/difficulty.
+5. Provide a brief answer key or hints on the lines immediately below the question.
+
+Here is my study material:
+$text''';
+
+    showDialog(
+      context: context,
+      builder: (context) => _PromptDialog(prompt: prompt),
+    );
+  }
+}
+
+class _PromptDialog extends StatelessWidget {
+  final String prompt;
+  const _PromptDialog({required this.prompt});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Colors.white10)),
+      title: const Row(
+        children: [
+          Icon(Icons.auto_awesome, color: Colors.blueAccent),
+          SizedBox(width: 8),
+          Expanded(child: Text('ChatGPT Prompt Ready', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+        ],
+      ),
+      content: const Text(
+        'We have combined your raw questions with our strict formatting rules. You can copy it or open ChatGPT directly. Once ChatGPT answers, paste the result back into the analyzer.',
+        style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+      ),
+      actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('CANCEL', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w600)),
+        ),
+        TextButton(
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: prompt));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Prompt copied to clipboard!'), backgroundColor: Colors.green),
+            );
+          },
+          child: const Text('COPY', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blueAccent,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onPressed: () async {
+            Clipboard.setData(ClipboardData(text: prompt)); // Auto copy just in case
+            final url = Uri.parse('https://chatgpt.com/?q=${Uri.encodeComponent(prompt)}');
+            if (await canLaunchUrl(url)) {
+              await launchUrl(url, mode: LaunchMode.externalApplication);
+            } else {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Could not open browser. Prompt copied instead.'), backgroundColor: Colors.orange),
+                );
+              }
+            }
+          },
+          child: const Text('OPEN IN CHATGPT', style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      ],
+    );
   }
 }
