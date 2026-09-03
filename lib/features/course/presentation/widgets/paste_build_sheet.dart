@@ -295,11 +295,13 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     final prompt = '''I am providing you with my syllabus/past exam papers. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.
 
 FORMATTING RULES:
-1. Number short-answer questions from 1 to 10.
-2. Number main essay questions from 11 to 15 (one for each unit).
-3. Number the hardest application/case-study question as 16.
-4. Add 1 to 5 stars (⭐) at the end of the question title to indicate priority/difficulty.
-5. Provide a brief answer key or hints on the lines immediately below the question.
+1. PART A (Short Answers): Generate exactly 10 questions numbered 1 to 10. (These will be automatically split equally across 5 units).
+2. PART B (Essay Questions): Number these from 11 to 15. 
+   - Question 11 maps to Unit 1, 12 to Unit 2, 13 to Unit 3, 14 to Unit 4, and 15 to Unit 5.
+   - If a question has subsections, number them clearly at the start of the line like 11(a), 11(b), 11(c), etc.
+3. PART C (Case Study/Application): Number this as 16.
+4. Add 1 to 5 stars (⭐) at the end of every question title to indicate priority/difficulty.
+5. Provide a brief answer key or hints on the lines immediately below each question.
 
 Here is my study material:
 $text''';
