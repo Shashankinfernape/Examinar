@@ -128,7 +128,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       // Smarter Regex: Matches "11.", "11.(a)", "Q11", "11 a)", etc. ONLY if it's the start of a line.
       // It avoids splitting on "1.", "2." if they look like simple list items deep in the text.
       final RegExp questionRegex = RegExp(
-        r'^(?:Q\d+|\d{1,2}[\.\)]?\s*(?:\([a-z]\)|[a-z]\))?)',
+        r'^[\s\*\-\#]*(?:Q\d+|\d{1,2}[\.\)]?\s*(?:\([a-z]\)|[a-z]\))?)',
         caseSensitive: false,
         multiLine: true,
       );
@@ -137,7 +137,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       final List<Map<String, dynamic>> parsedQuestions = [];
 
       if (matches.isEmpty) {
-        parsedQuestions.add({'title': 'Pasted Content', 'content': text, 'unitIndex': 1});
+        parsedQuestions.add({'title': 'Pasted Content', 'content': text, 'unitIndex': 1, 'difficulty': 3, 'qNum': 1});
       } else {
         // Filter out matches that drop sequentially (e.g. going from 11 to 1) to prevent splitting on lists
         final List<RegExpMatch> validMatches = [];
@@ -159,7 +159,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         }
 
         if (validMatches.isEmpty) {
-           parsedQuestions.add({'title': 'Pasted Content', 'content': text, 'unitIndex': 1});
+           parsedQuestions.add({'title': 'Pasted Content', 'content': text, 'unitIndex': 1, 'difficulty': 3, 'qNum': 1});
         } else {
           for (int i = 0; i < validMatches.length; i++) {
             final marker = validMatches[i].group(0)!.trim();
@@ -278,6 +278,13 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       });
 
       if (mounted && !widget.isEmbedded) Navigator.pop(context);
+    } catch (e, stackTrace) {
+      debugPrint('Error processing paste: $e\n$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
