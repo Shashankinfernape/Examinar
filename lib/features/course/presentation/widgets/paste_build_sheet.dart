@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:dotted_border/dotted_border.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/course_repository.dart';
 import '../../domain/models/unit.dart';
@@ -22,6 +24,9 @@ class PasteBuildSheet extends ConsumerStatefulWidget {
 class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   final _textController = TextEditingController();
   bool _isProcessing = false;
+
+  int _selectedTab = 0; // 0 = Paste Text, 1 = Upload Document
+  bool _isDragging = false;
 
   @override
   void dispose() {
@@ -62,21 +67,113 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                   style: const TextStyle(fontSize: 12, color: Colors.white54, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _textController,
-                  maxLines: 5,
-                  minLines: 3,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: 'Paste raw question paper OR ChatGPT output here...',
-                    hintStyle: const TextStyle(color: Colors.white30),
-                    filled: true,
-                    fillColor: Colors.white.withOpacity(0.05),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.white10)),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.white, width: 1.5)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.white10)),
+                
+                // Segmented Control
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _selectedTab = 0),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: _selectedTab == 0 ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text('Paste Raw Text', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _selectedTab = 1),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: _selectedTab == 1 ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text('Upload Document', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(height: 16),
+                
+                if (_selectedTab == 0)
+                  TextField(
+                    controller: _textController,
+                    maxLines: 5,
+                    minLines: 3,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'Paste raw question paper OR ChatGPT output here...',
+                      hintStyle: const TextStyle(color: Colors.white30),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.05),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.white10)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.white, width: 1.5)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.white10)),
+                    ),
+                  )
+                else
+                  DropTarget(
+                    onDragEntered: (_) => setState(() => _isDragging = true),
+                    onDragExited: (_) => setState(() => _isDragging = false),
+                    onDragDone: (details) {
+                      setState(() => _isDragging = false);
+                      if (details.files.isNotEmpty) {
+                        _textController.text = "Attached: ${details.files.first.name}\n\n(File parsing logic to be implemented...)";
+                        setState(() => _selectedTab = 0); // Switch back to text to show file name
+                      }
+                    },
+                    child: DottedBorder(
+                      options: RoundedRectDottedBorderOptions(
+                        color: _isDragging ? Colors.blueAccent : Colors.white30,
+                        strokeWidth: 2,
+                        dashPattern: const [8, 6],
+                        radius: const Radius.circular(16),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 16),
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: _isDragging ? Colors.blueAccent.withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.02),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.upload_file, size: 48, color: _isDragging ? Colors.blueAccent : Colors.white38),
+                            const SizedBox(height: 16),
+                            RichText(
+                              textAlign: TextAlign.center,
+                              text: TextSpan(
+                                style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+                                children: [
+                                  TextSpan(text: 'Click to upload', style: TextStyle(color: _isDragging ? Colors.blueAccent : Colors.blue, fontWeight: FontWeight.bold)),
+                                  const TextSpan(text: ' or drag and drop\nquestion papers'),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text('Supported: PDF, JPG, PNG', style: TextStyle(color: Colors.white30, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                
                 const SizedBox(height: 24),
                 Row(
                   children: [
@@ -302,12 +399,14 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     final prompt = '''I am providing you with my syllabus/past exam papers. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.
 
 FORMATTING RULES:
-1. PART A (Short Answers): Generate exactly 10 questions numbered 1 to 10. (These will be automatically split equally across 5 units). Give [2 Marks] for each question.
-2. PART B (Essay Questions): Number these from 11 to 15. 
-   - Question 11 maps to Unit 1, 12 to Unit 2, 13 to Unit 3, 14 to Unit 4, and 15 to Unit 5. Give [13 Marks] for each main question.
-   - If a question has subsections, number them clearly at the start of the line like 11(a), 11(b), 11(c), etc.
-3. PART C (Case Study/Application): Number this as 16. Give it [15 Marks].
-4. Add 1 to 5 stars (⭐) at the end of every question title to indicate priority/difficulty.
+1. PART A (Short Answers): Number all short answer questions sequentially starting from 1 (e.g. 1., 2., 3., etc.). Do NOT group them by units, just provide a continuous list. Give [2 Marks] for each question.
+2. PART B (Essay Questions): Number the main questions from 11 to 15. 
+   - Subsections MUST be clearly numbered at the start of the line like 11(a), 11(b), 12(a), 12(b)(i), etc.
+   - Give [13 Marks] total for each main question (or explicitly split marks among sub-parts).
+3. PART C (Case Study/Application): Number the main question as 16. 
+   - If it has subsections, format them as 16(a), 16(b), etc.
+   - Give [15 Marks] total for this section.
+4. DIFFICULTY RATING: Analyze the difficulty/importance of EACH question or sub-part and append 1 to 5 stars (⭐) at the end of the text.
 5. Provide a brief answer key or hints on the lines immediately below each question.
 
 Here is my study material:

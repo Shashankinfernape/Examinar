@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/question_repository.dart';
+import '../../data/repositories/course_repository.dart';
 import '../../domain/models/question.dart';
+import '../../domain/models/course.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -14,6 +16,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class QuestionDetailScreen extends ConsumerStatefulWidget {
   final int questionId;
@@ -59,6 +62,51 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     final savedFile = io.File('${docsDir.path}/$fileName');
     await savedFile.writeAsBytes(bytes);
     return savedFile.path;
+  }
+
+  Future<void> _askChatGPT(Question question) async {
+    final cRepo = await ref.read(courseRepositoryProvider.future);
+    final course = await cRepo.isar.courses.get(question.courseId);
+    final courseName = course?.name ?? 'the subject';
+    
+    await question.unitLink.load();
+    final unitName = question.unitLink.value?.name ?? '';
+    
+    String marksStr = "13 marks";
+    if (unitName.contains('Part A')) {
+      marksStr = "2 marks";
+    } else if (unitName.contains('Part C')) {
+      marksStr = "16 marks";
+    }
+    
+    final prompt = "This is a question for $courseName. It is an Anna University question.\n"
+        "Since it is from $unitName, provide a $marksStr answer.\n\n"
+        "Question:\n${question.title}\n\n"
+        "Additional context (if any):\n${_questionController.text}\n\n"
+        "Provide the answer in clean text without markdown code blocks so I can copy it easily.";
+    
+    final encodedPrompt = Uri.encodeComponent(prompt);
+    final url = Uri.parse('https://chatgpt.com/?q=$encodedPrompt');
+    
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ChatGPT opened! Copy the answer and paste it into your Notebook.', style: TextStyle(color: Colors.white)), 
+            backgroundColor: AppTheme.samsungBlue, 
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open browser.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
   }
 
   @override
@@ -222,6 +270,17 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                       // 4. NOTES CARD (User Notepad)
                       _buildOneUICard(
                         title: 'Notebook',
+                        trailing: TextButton.icon(
+                          onPressed: () => _askChatGPT(question),
+                          icon: const Icon(Icons.auto_awesome, size: 16, color: AppTheme.samsungBlue),
+                          label: const Text('Generate Answer', style: TextStyle(color: AppTheme.samsungBlue, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5)),
+                          style: TextButton.styleFrom(
+                            backgroundColor: AppTheme.samsungBlue.withValues(alpha: 0.15),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                            minimumSize: const Size(0, 32),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          ),
+                        ),
                         padding: const EdgeInsets.all(16),
                         child: TextField(
                           controller: _notesController,
