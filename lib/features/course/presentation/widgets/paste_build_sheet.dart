@@ -32,12 +32,15 @@ class PasteBuildSheet extends ConsumerStatefulWidget {
 
 class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   final _textController = TextEditingController();
+  final _gptResponseController = TextEditingController();
   bool _isProcessing = false;
   bool _isDragging = false;
+  bool _promptSent = false; // true after ChatGPT is opened
 
   @override
   void dispose() {
     _textController.dispose();
+    _gptResponseController.dispose();
     super.dispose();
   }
 
@@ -354,11 +357,114 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                 ],
               ),
               const SizedBox(height: 16),
+
+              // --- Response Pane (shown after ChatGPT is opened) ---
+              if (_promptSent) ...[
+                const Divider(color: Colors.white10, thickness: 1),
+                const SizedBox(height: 16),
+
+                // Status message
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 20),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Prompt is ready! Send it in ChatGPT, then copy the generated question pattern and paste it below.',
+                          style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => setState(() => _promptSent = false),
+                        child: const Text('Reset', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // GPT Response paste field
+                TextField(
+                  controller: _gptResponseController,
+                  maxLines: 8,
+                  minLines: 5,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Paste ChatGPT\'s generated question paper here...',
+                    hintStyle: const TextStyle(color: Colors.white30),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.04),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Colors.white10),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Colors.white, width: 1.5),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Colors.white10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Proceed button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF3E82F7),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    onPressed: _isProcessing ? null : _processPasteResponse,
+                    icon: _isProcessing
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.auto_awesome, size: 18),
+                    label: const Text(
+                      'PROCEED — CREATE SUBJECT BLUEPRINT',
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.6),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  // Processes the GPT response pasted in the response field
+  void _processPasteResponse() {
+    final response = _gptResponseController.text.trim();
+    if (response.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please paste ChatGPT\'s response first.', style: TextStyle(color: Colors.white)),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+    // Pipe the GPT response into the main text controller and run _processPaste
+    _textController.text = response;
+    _processPaste();
   }
 
   void _processPaste() async {
@@ -584,15 +690,9 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       'https://chatgpt.com/?q=${Uri.encodeComponent(preprompt)}',
     );
 
-    // Show snackbar immediately
+    // Mark prompt as sent — UI will shift to response pane
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('🚀 Opening ChatGPT — image will paste automatically when it loads...'),
-        backgroundColor: Colors.blueAccent,
-        duration: Duration(seconds: 5),
-      ),
-    );
+    setState(() => _promptSent = true);
 
     // Open ChatGPT with preprompt in URL
     if (await canLaunchUrl(url)) {
@@ -672,6 +772,7 @@ $text''';
       );
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
+        if (mounted) setState(() => _promptSent = true);
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
