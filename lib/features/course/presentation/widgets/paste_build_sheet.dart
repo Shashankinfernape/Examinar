@@ -588,7 +588,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('🚀 Opening ChatGPT — image will be pasted automatically in ~5s...'),
+        content: Text('🚀 Opening ChatGPT — image will paste automatically when it loads...'),
         backgroundColor: Colors.blueAccent,
         duration: Duration(seconds: 5),
       ),
@@ -599,17 +599,30 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     }
 
-    // Wait for browser to load, then simulate Ctrl+V to paste the image
-    // Uses a hidden PowerShell window to send keystrokes to the foreground window
+    // Smart wait: poll every 500ms until a browser window with "ChatGPT" appears, then Ctrl+V
     await Process.start(
       'powershell',
       [
         '-WindowStyle', 'Hidden',
         '-Command',
-        // Wait 5s for ChatGPT to load, then Ctrl+End to reach input, then Ctrl+V
-        r'Start-Sleep -Seconds 5; '
-        r'Add-Type -AssemblyName System.Windows.Forms; '
-        r'[System.Windows.Forms.SendKeys]::SendWait("^v");',
+        r'''
+$maxWait = 20;
+$elapsed = 0;
+Add-Type -AssemblyName System.Windows.Forms;
+$shell = New-Object -ComObject WScript.Shell;
+while ($elapsed -lt $maxWait) {
+  Start-Sleep -Milliseconds 500;
+  $elapsed += 0.5;
+  $proc = Get-Process | Where-Object { $_.MainWindowTitle -like "*ChatGPT*" } | Select-Object -First 1;
+  if ($proc) {
+    Start-Sleep -Milliseconds 800;
+    $shell.AppActivate($proc.Id) | Out-Null;
+    Start-Sleep -Milliseconds 400;
+    [System.Windows.Forms.SendKeys]::SendWait("^v");
+    break;
+  }
+}
+''',
       ],
       runInShell: false,
     );
