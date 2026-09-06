@@ -596,7 +596,7 @@ FORMATTING RULES:
 5. Provide a brief answer key or hints on the lines immediately below each question.
 
 Here is my study material:
-\$text''';
+$text''';
 
     if (autoLaunch) {
       if (imagePathForClipboard != null) {
@@ -606,7 +606,7 @@ Here is my study material:
       }
       
       final url = Uri.parse(
-        'https://chatgpt.com/?q=\${Uri.encodeComponent(prompt)}',
+        'https://chatgpt.com/?q=${Uri.encodeComponent(prompt)}',
       );
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
