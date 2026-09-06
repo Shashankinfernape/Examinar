@@ -6,6 +6,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'dart:io';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/course_repository.dart';
@@ -77,12 +78,12 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
           path.toLowerCase().endsWith('.jpeg')) {
         setState(() {
           _textController.text =
-              "[Image Attached: \${path.split(Platform.pathSeparator).last}]\n\n(Please drag and drop your image directly into this ChatGPT window!)";
+              "[Image Attached: \${path.split(Platform.pathSeparator).last}]\n\n(Press Ctrl+V in ChatGPT to paste the image!)";
         });
 
         // Ensure UI updates with the text before generating prompt
         await Future.delayed(const Duration(milliseconds: 100));
-        _generatePrompt(true);
+        _generatePrompt(true, path);
       } else {
         setState(() {
           _textController.text =
@@ -565,7 +566,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     }
   }
 
-  void _generatePrompt([bool autoLaunch = false]) async {
+  void _generatePrompt([bool autoLaunch = false, String? imagePathForClipboard]) async {
     final text = _textController.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -595,10 +596,15 @@ FORMATTING RULES:
 5. Provide a brief answer key or hints on the lines immediately below each question.
 
 Here is my study material:
-$text''';
+\$text''';
 
     if (autoLaunch) {
-      Clipboard.setData(ClipboardData(text: prompt)); // Auto copy just in case
+      if (imagePathForClipboard != null) {
+        await Pasteboard.writeFiles([imagePathForClipboard]);
+      } else {
+        Clipboard.setData(ClipboardData(text: prompt)); // Auto copy text just in case
+      }
+      
       final url = Uri.parse(
         'https://chatgpt.com/?q=\${Uri.encodeComponent(prompt)}',
       );
@@ -606,9 +612,9 @@ $text''';
         await launchUrl(url, mode: LaunchMode.externalApplication);
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Could not open browser')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open browser')),
+        );
       }
     } else {
       showDialog(
