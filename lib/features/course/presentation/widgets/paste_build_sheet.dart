@@ -76,18 +76,21 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       } else if (path.toLowerCase().endsWith('.png') ||
           path.toLowerCase().endsWith('.jpg') ||
           path.toLowerCase().endsWith('.jpeg')) {
+        // Copy image to system clipboard so user can Ctrl+V in ChatGPT
+        await Pasteboard.writeFiles([path]);
+
+        // Clear the text field - the image is in the clipboard, not the text
         setState(() {
-          _textController.text =
-              "[Image Attached: \${path.split(Platform.pathSeparator).last}]\n\n(Press Ctrl+V in ChatGPT to paste the image!)";
+          _textController.text = '';
         });
 
-        // Ensure UI updates with the text before generating prompt
-        await Future.delayed(const Duration(milliseconds: 100));
-        _generatePrompt(true, path);
+        // Open ChatGPT with the preprompt (without any image placeholder text)
+        await Future.delayed(const Duration(milliseconds: 150));
+        _launchChatGptWithImagePreprompt();
       } else {
         setState(() {
           _textController.text =
-              "Attached file: \${path.split(Platform.pathSeparator).last}\n\n(Currently only PDF and TXT text extraction is supported automatically.)";
+              'Attached file: ${path.split(Platform.pathSeparator).last}\n\n(Currently only PDF and TXT text extraction is supported automatically.)';
         });
       }
     } catch (e) {
@@ -563,6 +566,35 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _launchChatGptWithImagePreprompt() async {
+    const preprompt =
+        'I am providing you with a photo of my past exam paper. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.\n\n'
+        'FORMATTING RULES:\n'
+        '1. PART A (Short Answers): Number all short answer questions sequentially starting from 1. Give [2 Marks] for each question.\n'
+        '2. PART B (Essay Questions): Number the main questions from 11 to 15. Subsections like 11(a), 11(b), etc. Give [13 Marks] total.\n'
+        '3. PART C (Case Study/Application): Number the main question as 16. Give [15 Marks] total.\n'
+        '4. DIFFICULTY RATING: Append 1 to 5 stars (⭐) at the end of each question.\n'
+        '5. Provide a brief answer key or hints on the lines immediately below each question.\n\n'
+        'The image I am attaching IS the exam paper. Please read it carefully.';
+
+    final url = Uri.parse(
+      'https://chatgpt.com/?q=${Uri.encodeComponent(preprompt)}',
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('📋 Image copied! Press Ctrl+V in ChatGPT to attach it.'),
+        backgroundColor: Colors.blueAccent,
+        duration: Duration(seconds: 4),
+      ),
+    );
+
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
     }
   }
 
