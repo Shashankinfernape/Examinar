@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:desktop_drop/desktop_drop.dart';
+import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/course_repository.dart';
@@ -37,50 +38,27 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   bool _isProcessing = false;
   bool _isDragging = false;
   bool _promptSent = false; // true after ChatGPT is opened
-
-  @override
-  void initState() {
-    super.initState();
-    DesktopDrop.instance.init();
-    DesktopDrop.instance.addRawDropEventListener(_handleRawDropEvent);
-  }
+  List<String> _attachments = [];
 
   @override
   void dispose() {
-    DesktopDrop.instance.removeRawDropEventListener(_handleRawDropEvent);
     _textController.dispose();
     _gptResponseController.dispose();
     super.dispose();
-  }
-
-  void _handleRawDropEvent(DropEvent event) async {
-    if (event is DropEnterEvent) {
-      if (!_isDragging && mounted) {
-        setState(() => _isDragging = true);
-      }
-    } else if (event is DropExitEvent) {
-      if (_isDragging && mounted) {
-        setState(() => _isDragging = false);
-      }
-    } else if (event is DropDoneEvent) {
-      if (mounted) {
-        setState(() => _isDragging = false);
-      }
-      if (event.files.isNotEmpty) {
-        final path = event.files.first.path;
-        debugPrint('RAW DROP EVENT CAPTURED: $path');
-        await _processFile(path);
-      }
-    }
   }
 
   Future<void> _handleFileSelection() async {
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.any,
+        allowMultiple: true,
       );
-      if (result != null && result.files.single.path != null) {
-        await _processFile(result.files.single.path!);
+      if (result != null && result.files.isNotEmpty) {
+        for (var file in result.files) {
+          if (file.path != null) {
+            await _addAttachment(file.path!);
+          }
+        }
       }
     } catch (e) {
       debugPrint("Error picking file: $e");
@@ -94,13 +72,15 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         final tempDir = await getTemporaryDirectory();
         final tempFile = File('${tempDir.path}/clipboard_image_${DateTime.now().millisecondsSinceEpoch}.png');
         await tempFile.writeAsBytes(imageBytes);
-        await _processFile(tempFile.path);
+        await _addAttachment(tempFile.path);
         return;
       }
 
       final files = await Pasteboard.files();
       if (files.isNotEmpty) {
-        await _processFile(files.first);
+        for (var file in files) {
+          await _addAttachment(file);
+        }
         return;
       }
 
@@ -133,19 +113,9 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     }
   }
 
-  Future<void> _processFile(String path) async {
+  Future<void> _addAttachment(String path) async {
     setState(() => _isProcessing = true);
     final fileName = path.split(Platform.pathSeparator).last;
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('📂 Received $fileName — preparing ChatGPT...'),
-          duration: const Duration(seconds: 2),
-          backgroundColor: const Color(0xFF3E82F7),
-        ),
-      );
-    }
 
     try {
       final ext = path.toLowerCase().split('.').last;
@@ -155,41 +125,31 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         final PdfDocument document = PdfDocument(inputBytes: bytes);
         final String text = PdfTextExtractor(document).extractText();
         document.dispose();
-        setState(() => _textController.text = text);
-
+        setState(() {
+          _textController.text = text;
+          _isProcessing = false;
+        });
       } else if (ext == 'txt') {
         final String text = await File(path).readAsString();
-        setState(() => _textController.text = text);
-
+        setState(() {
+          _textController.text = text;
+          _isProcessing = false;
+        });
       } else {
-        // All other types (images, docs, etc.) — copy file and image bytes to clipboard
-        final isImage = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'].contains(ext);
-        if (isImage) {
-          try {
-            final bytes = await File(path).readAsBytes();
-            await Pasteboard.writeImage(bytes);
-          } catch (err) {
-            debugPrint('writeImage error: $err');
-          }
-        }
-        try {
-          await Pasteboard.writeFiles([path]);
-        } catch (err) {
-          debugPrint('writeFiles error: $err');
-        }
-        
-        setState(() => _textController.text = '');
-        await Future.delayed(const Duration(milliseconds: 150));
-        await _launchChatGptWithImagePreprompt(path);
+        // Assume image/doc and add to attachments
+        setState(() {
+          _attachments.add(path);
+          _isProcessing = false;
+        });
       }
     } catch (e) {
-      debugPrint('Error processing file: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error reading file: $e'), backgroundColor: Colors.redAccent),
-      );
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      debugPrint('Error adding attachment: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error reading file: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+      setState(() => _isProcessing = false);
     }
   }
 
@@ -271,15 +231,37 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
 
                   final dropZone = GestureDetector(
                     onTap: _isProcessing ? null : _handleFileSelection,
-                    child: DropTarget(
-                      onDragEntered: (_) => setState(() => _isDragging = true),
-                      onDragExited: (_) => setState(() => _isDragging = false),
-                      onDragDone: (details) async {
-                        setState(() => _isDragging = false);
-                        if (details.files.isNotEmpty) {
-                          final f = details.files.first;
-                          debugPrint('DROP: path=${f.path} name=${f.name}');
-                          await _processFile(f.path);
+                    child: DropRegion(
+                      formats: Formats.standardFormats,
+                      onDropOver: (event) {
+                        if (!_isDragging && mounted) setState(() => _isDragging = true);
+                        return DropOperation.copy;
+                      },
+                      onDropLeave: (event) {
+                        if (_isDragging && mounted) setState(() => _isDragging = false);
+                      },
+                      onPerformDrop: (event) async {
+                        if (mounted) setState(() => _isDragging = false);
+                        if (event.session.items.isEmpty) return;
+                        setState(() => _isProcessing = true);
+                        int idx = 0;
+                        for (final item in event.session.items) {
+                          idx++;
+                          final currentIdx = idx;
+                          if (item.dataReader != null) {
+                             item.dataReader!.getFile(null, (file) async {
+                                try {
+                                  final bytes = await file.readAll();
+                                  final tempDir = await getTemporaryDirectory();
+                                  final ext = file.fileName?.split('.').last ?? 'png';
+                                  final tempFile = File('${tempDir.path}/drop_${DateTime.now().microsecondsSinceEpoch}_${currentIdx}_${file.fileName ?? "img"}.$ext');
+                                  await tempFile.writeAsBytes(bytes);
+                                  await _addAttachment(tempFile.path);
+                                } catch (e) {
+                                  debugPrint("Drop error: $e");
+                                }
+                             });
+                          }
                         }
                       },
                       child: DottedBorder(
@@ -333,38 +315,21 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                                   ),
                                   children: [
                                     TextSpan(
-                                      text: 'Click to upload',
-                                      style: TextStyle(
-                                        color: _isDragging
-                                            ? Colors.blueAccent
-                                            : Colors.blue,
+                                      text: _attachments.isEmpty ? 'Drag & Drop Images/PDF\n' : 'Add more Images/PDF\n',
+                                      style: const TextStyle(
                                         fontWeight: FontWeight.bold,
+                                        color: Colors.white,
                                       ),
                                     ),
-                                    const TextSpan(
-                                      text:
-                                          ' or drag and drop\nquestion papers',
-                                    ),
+                                    const TextSpan(text: 'or click to browse files'),
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              const Text(
-                                'Images, PDF, TXT — anything ChatGPT accepts',
-                                style: TextStyle(
-                                  color: Colors.white30,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 16),
                               OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.white,
-                                  backgroundColor: Colors.white.withValues(alpha: 0.05),
                                   side: const BorderSide(color: Colors.white24),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 14,
                                     vertical: 10,
@@ -373,10 +338,55 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                                 onPressed: _isProcessing ? null : _handlePasteFromClipboard,
                                 icon: const Icon(Icons.content_paste_rounded, size: 16, color: Colors.blueAccent),
                                 label: const Text(
-                                  'Paste from Clipboard (Image / File)',
+                                  'Paste from Clipboard',
                                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                                 ),
                               ),
+                              if (_attachments.isNotEmpty) ...[
+                                const SizedBox(height: 24),
+                                const Divider(color: Colors.white10),
+                                const SizedBox(height: 12),
+                                const Text("Attached Images", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  alignment: WrapAlignment.center,
+                                  children: _attachments.map((path) {
+                                    return Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: Image.file(
+                                            File(path),
+                                            width: 60,
+                                            height: 60,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                        Positioned(
+                                          top: -6,
+                                          right: -6,
+                                          child: GestureDetector(
+                                            onTap: () {
+                                              setState(() => _attachments.remove(path));
+                                            },
+                                            child: Container(
+                                              padding: const EdgeInsets.all(4),
+                                              decoration: const BoxDecoration(
+                                                color: Colors.redAccent,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(Icons.close, size: 12, color: Colors.white),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -421,7 +431,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                       ),
                       onPressed: _generatePrompt,
                       child: const Text(
-                        'GENERATE PROMPT',
+                        'GENERATE TEXT PROMPT',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 12,
@@ -431,36 +441,68 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                  if (_attachments.isNotEmpty)
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
+                        onPressed: _isProcessing ? null : () => _launchChatGptWithImages(_attachments),
+                        child: _isProcessing
+                            ? const SizedBox(
+                                height: 16,
+                                width: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                'PROCEED (${_attachments.length})',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
                       ),
-                      onPressed: _isProcessing ? null : _processPaste,
-                      child: _isProcessing
-                          ? const SizedBox(
-                              height: 16,
-                              width: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.black,
+                    )
+                  else
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: _isProcessing ? null : _processPaste,
+                        child: _isProcessing
+                            ? const SizedBox(
+                                height: 16,
+                                width: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : const Text(
+                                'PARSE RESPONSE',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14,
+                                  letterSpacing: 1.0,
+                                ),
                               ),
-                            )
-                          : const Text(
-                              'BUILD CHECKLIST',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 12,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
+                      ),
                     ),
-                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -782,106 +824,246 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     }
   }
 
-  Future<void> _launchChatGptWithImagePreprompt(String imagePath) async {
-    const preprompt =
-        'I am providing you with a photo of my past exam paper. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.\n\n'
-        'FORMATTING RULES:\n'
-        '1. PART A (Short Answers): Number all short answer questions sequentially starting from 1. Give [2 Marks] for each question.\n'
-        '2. PART B (Essay Questions): Number the main questions from 11 to 15. Subsections like 11(a), 11(b), etc. Give [13 Marks] total.\n'
-        '3. PART C (Case Study/Application): Number the main question as 16. Give [15 Marks] total.\n'
-        '4. DIFFICULTY RATING: Append 1 to 5 stars (⭐) at the end of each question.\n'
-        '5. Provide a brief answer key or hints on the lines immediately below each question.\n\n'
-        'The image I am attaching IS the exam paper. Please read it carefully.';
+  static const _channel = MethodChannel('com.examcommandcenter.direct_share');
 
-    final url = Uri.parse(
-      'https://chatgpt.com/?q=${Uri.encodeComponent(preprompt)}',
+  Future<bool> _shareDirectlyToApp(List<String> imagePaths, String preprompt, String packageName) async {
+    try {
+      final success = await _channel.invokeMethod<bool>('shareImage', {
+        'imagePaths': imagePaths,
+        'text': preprompt,
+        'package': packageName,
+      });
+      return success ?? false;
+    } catch (e) {
+      debugPrint("Direct share error: $e");
+      return false;
+    }
+  }
+
+  Future<void> _showAiFallbackDialog(List<String> imagePaths, String preprompt) async {
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text("ChatGPT App Not Found", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.language, color: Colors.blue),
+              title: const Text("Open ChatGPT in Browser", style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                final url = Uri.parse('https://chatgpt.com/?q=\${Uri.encodeComponent(preprompt)}');
+                launchUrl(url, mode: LaunchMode.externalApplication);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome, color: Colors.purple),
+              title: const Text("Open in Gemini", style: TextStyle(color: Colors.white)),
+              onTap: () async {
+                Navigator.pop(context);
+                final success = await _shareDirectlyToApp(imagePaths, preprompt, 'com.google.android.apps.bard');
+                if (!success && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gemini not found.')));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.psychology, color: Colors.orange),
+              title: const Text("Open in Claude", style: TextStyle(color: Colors.white)),
+              onTap: () async {
+                Navigator.pop(context);
+                final success = await _shareDirectlyToApp(imagePaths, preprompt, 'com.anthropic.claude');
+                if (!success && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Claude not found.')));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.search, color: Colors.teal),
+              title: const Text("Open in Perplexity", style: TextStyle(color: Colors.white)),
+              onTap: () async {
+                Navigator.pop(context);
+                final success = await _shareDirectlyToApp(imagePaths, preprompt, 'ai.perplexity.app.android');
+                if (!success && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Perplexity not found.')));
+              },
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  Future<void> _launchChatGptWithImages(List<String> imagePaths) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+
+    const preprompt =
+        'I am providing you with a photo of my past exam paper. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.\\n\\n'
+        'FORMATTING RULES:\\n'
+        '1. PART A (Short Answers): Number all short answer questions sequentially starting from 1. Give [2 Marks] for each question.\\n'
+        '2. PART B (Essay Questions): Number the main questions from 11 to 15. Subsections like 11(a), 11(b), etc. Give [13 Marks] total.\\n'
+        '3. PART C (Case Study/Application): Number the main question as 16. Give [15 Marks] total.\\n'
+        '4. DIFFICULTY RATING: Append 1 to 5 stars (★) at the end of each question.\\n'
+        '5. Provide a brief answer key or hints on the lines immediately below each question.\\n\\n'
+        'The images I am attaching ARE the exam papers. Please read them carefully.';
+
+    // 1. On Android: Try to open ChatGPT App directly. If not found, show custom AI fallback menu.
+    if (Platform.isAndroid) {
+      if (!mounted) return;
+      setState(() => _promptSent = true);
+      
+      // Copy prompt to clipboard because some AI apps (like ChatGPT) drop the text when receiving an image intent
+      await Clipboard.setData(const ClipboardData(text: preprompt));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Prompt copied! Please paste prompt into the AI app.')),
+        );
+      }
+      
+      // Try launching ChatGPT directly
+      final success = await _shareDirectlyToApp(imagePaths, preprompt, 'com.openai.chatgpt');
+      if (!success) {
+        await _showAiFallbackDialog(imagePaths, preprompt);
+      }
+      return;
+    }
+
+    if (Platform.isIOS) {
+      if (!mounted) return;
+      setState(() => _promptSent = true);
+      try {
+        await Clipboard.setData(const ClipboardData(text: preprompt));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Prompt copied! Sending image... Please paste prompt in ChatGPT.')),
+          );
+        }
+        final xFiles = imagePaths.map((p) => XFile(p)).toList();
+        await Share.shareXFiles(xFiles, subject: 'Exam Paper');
+      } catch (e) {
+        debugPrint('Share failed: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Share failed: $e')),
+          );
+        }
+      }
+      if (mounted) setState(() => _isProcessing = false); return; // Stop here for iOS
+    }
 
     // Mark prompt as sent — UI will shift to response pane
     if (!mounted) return;
     setState(() => _promptSent = true);
 
-    // 1. On Windows: Load the image into GDI+ and put it directly on the Windows clipboard
-    if (Platform.isWindows) {
-      final safePath = imagePath.replaceAll('/', r'\').replaceAll("'", "''");
-      try {
-        await Process.run('powershell', [
-          '-NoProfile',
-          '-ExecutionPolicy', 'Bypass',
-          '-WindowStyle', 'Hidden',
-          '-Command',
-          '''
-Add-Type -AssemblyName System.Windows.Forms;
-Add-Type -AssemblyName System.Drawing;
-\$img = [System.Drawing.Image]::FromFile('$safePath');
-[System.Windows.Forms.Clipboard]::SetImage(\$img);
-''',
-        ]);
-      } catch (e) {
-        debugPrint('Failed to set clipboard image via PowerShell: $e');
-      }
-    }
-
-    // 2. Open ChatGPT with preprompt in URL
-    try {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } catch (e) {
-      debugPrint('launchUrl direct failed: $e');
-      if (Platform.isWindows) {
-        try {
-          await Process.start('explorer', [url.toString()]);
-        } catch (err) {
-          debugPrint('explorer fallback failed: $err');
-        }
-      }
-    }
-
-    // 3. On Windows: Focus the browser window and automate Ctrl+V
+    // 2. On Windows: Save PowerShell script to temp file and run it
     if (Platform.isWindows) {
       try {
-        await Process.start(
+        final tempDir = await getTemporaryDirectory();
+        
+        // Save preprompt to a text file to avoid PowerShell string escaping issues
+        final textFile = File('${tempDir.path}\\chatgpt_preprompt.txt');
+        await textFile.writeAsString(preprompt);
+        final safeTextPath = textFile.path.replaceAll("'", "''");
+
+        // Build PowerShell lines to add each image path sequentially
+        final imagePasteBlocks = imagePaths.map((path) {
+            final safePath = path.replaceAll('/', r'\').replaceAll("'", "''");
+            return '''
+  \$singleFile = New-Object System.Collections.Specialized.StringCollection
+  \$singleFile.Add('$safePath')
+  for (\$i=0; \$i -lt 10; \$i++) {
+      try {
+          [System.Windows.Forms.Clipboard]::SetFileDropList(\$singleFile)
+          break
+      } catch { Start-Sleep -Milliseconds 300 }
+  }
+    Start-Sleep -Milliseconds 500
+    \$shell.SendKeys('^v')
+    Start-Sleep -Milliseconds 2000
+''';
+        }).join('\n');
+
+        final scriptFile = File('${tempDir.path}\\paste_sequence.ps1');
+        
+        final scriptContent = '''
+Add-Type -AssemblyName System.Windows.Forms
+
+# Open ChatGPT
+Start-Process "https://chatgpt.com"
+
+# Wait for browser window
+\$shell = New-Object -ComObject WScript.Shell
+\$maxWait = 60
+\$elapsed = 0
+\$activated = \$false
+while (\$elapsed -lt \$maxWait) {
+  Start-Sleep -Milliseconds 500
+  \$elapsed += 0.5
+  foreach (\$title in @('ChatGPT', 'Google Chrome', 'Microsoft Edge', 'Edge', 'Chrome', 'Brave', 'Firefox')) {
+    if (\$shell.AppActivate(\$title)) {
+      \$activated = \$true
+      break
+    }
+  }
+  if (\$activated) {
+    break
+  }
+}
+
+if (\$activated) {
+  # Wait for page to fully load (increased for slower internet connections)
+  Start-Sleep -Milliseconds 5000
+
+  # Load text from file and copy to clipboard with retry loop
+  \$text = [IO.File]::ReadAllText('$safeTextPath')
+  for (\$i=0; \$i -lt 10; \$i++) {
+      try {
+          [System.Windows.Forms.Clipboard]::SetText(\$text)
+          break
+      } catch { Start-Sleep -Milliseconds 200 }
+  }
+  Start-Sleep -Milliseconds 300
+
+  # Paste Text
+  \$shell.SendKeys('^v')
+  
+  # Crucial: Wait for ChatGPT's React UI to finish parsing the massive text block before pasting images
+  Start-Sleep -Milliseconds 2500
+
+$imagePasteBlocks
+}
+''';
+        await scriptFile.writeAsString(scriptContent);
+
+        // Run the script asynchronously
+        Process.start(
           'powershell',
           [
+            '-STA',
             '-NoProfile',
             '-ExecutionPolicy', 'Bypass',
             '-WindowStyle', 'Hidden',
-            '-Command',
-            r'''
-$maxWait = 25;
-$elapsed = 0;
-Add-Type -AssemblyName System.Windows.Forms;
-$shell = New-Object -ComObject WScript.Shell;
-while ($elapsed -lt $maxWait) {
-  Start-Sleep -Milliseconds 600;
-  $elapsed += 0.6;
-  $activated = $false;
-  foreach ($title in @('ChatGPT', 'Google Chrome', 'Microsoft Edge', 'Edge', 'Chrome')) {
-    if ($shell.AppActivate($title)) {
-      $activated = $true;
-      break;
-    }
-  }
-  if ($activated) {
-    Start-Sleep -Milliseconds 1500;
-    [System.Windows.Forms.SendKeys]::SendWait("^v");
-    break;
-  }
-}
-''',
+            '-File', scriptFile.path
           ],
           runInShell: false,
         );
       } catch (e) {
-        debugPrint('PowerShell paste automation error: $e');
+        debugPrint('PowerShell automation error: $e');
       }
-    } else if (Platform.isAndroid && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('📋 Image copied! Tap the message box in ChatGPT and attach the image.'),
-          backgroundColor: Color(0xFF3E82F7),
-          duration: Duration(seconds: 4),
-        ),
-      );
+      if (mounted) setState(() => _isProcessing = false); return; // Windows automation complete, exit method
+    }
+
+    // 3. Open ChatGPT with preprompt in URL (Desktop fallback / other platforms)
+    final url = Uri.parse(
+      'https://chatgpt.com/?q=\${Uri.encodeComponent(preprompt)}',
+    );
+    try {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('launchUrl direct failed: $e');
     }
   }
 
