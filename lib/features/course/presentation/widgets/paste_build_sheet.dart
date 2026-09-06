@@ -584,18 +584,35 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       'https://chatgpt.com/?q=${Uri.encodeComponent(preprompt)}',
     );
 
+    // Show snackbar immediately
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('📋 Image copied! Press Ctrl+V in ChatGPT to attach it.'),
+        content: Text('🚀 Opening ChatGPT — image will be pasted automatically in ~5s...'),
         backgroundColor: Colors.blueAccent,
-        duration: Duration(seconds: 4),
+        duration: Duration(seconds: 5),
       ),
     );
 
+    // Open ChatGPT with preprompt in URL
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     }
+
+    // Wait for browser to load, then simulate Ctrl+V to paste the image
+    // Uses a hidden PowerShell window to send keystrokes to the foreground window
+    await Process.start(
+      'powershell',
+      [
+        '-WindowStyle', 'Hidden',
+        '-Command',
+        // Wait 5s for ChatGPT to load, then Ctrl+End to reach input, then Ctrl+V
+        r'Start-Sleep -Seconds 5; '
+        r'Add-Type -AssemblyName System.Windows.Forms; '
+        r'[System.Windows.Forms.SendKeys]::SendWait("^v");',
+      ],
+      runInShell: false,
+    );
   }
 
   void _generatePrompt([bool autoLaunch = false, String? imagePathForClipboard]) async {
