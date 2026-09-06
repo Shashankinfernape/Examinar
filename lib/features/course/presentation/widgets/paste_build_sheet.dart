@@ -180,7 +180,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         
         setState(() => _textController.text = '');
         await Future.delayed(const Duration(milliseconds: 150));
-        await _launchChatGptWithImagePreprompt();
+        await _launchChatGptWithImagePreprompt(path);
       }
     } catch (e) {
       debugPrint('Error processing file: $e');
@@ -782,7 +782,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     }
   }
 
-  Future<void> _launchChatGptWithImagePreprompt() async {
+  Future<void> _launchChatGptWithImagePreprompt(String imagePath) async {
     const preprompt =
         'I am providing you with a photo of my past exam paper. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.\n\n'
         'FORMATTING RULES:\n'
@@ -801,7 +801,28 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     if (!mounted) return;
     setState(() => _promptSent = true);
 
-    // Open ChatGPT with preprompt in URL
+    // 1. On Windows: Load the image into GDI+ and put it directly on the Windows clipboard
+    if (Platform.isWindows) {
+      final safePath = imagePath.replaceAll('/', r'\').replaceAll("'", "''");
+      try {
+        await Process.run('powershell', [
+          '-NoProfile',
+          '-ExecutionPolicy', 'Bypass',
+          '-WindowStyle', 'Hidden',
+          '-Command',
+          '''
+Add-Type -AssemblyName System.Windows.Forms;
+Add-Type -AssemblyName System.Drawing;
+\$img = [System.Drawing.Image]::FromFile('$safePath');
+[System.Windows.Forms.Clipboard]::SetImage(\$img);
+''',
+        ]);
+      } catch (e) {
+        debugPrint('Failed to set clipboard image via PowerShell: $e');
+      }
+    }
+
+    // 2. Open ChatGPT with preprompt in URL
     try {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } catch (e) {
@@ -815,7 +836,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       }
     }
 
-    // Smart wait: on Windows, poll every 500ms until a browser window with "ChatGPT" appears, then Ctrl+V
+    // 3. On Windows: Focus the browser window and automate Ctrl+V
     if (Platform.isWindows) {
       try {
         await Process.start(
@@ -826,18 +847,22 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
             '-WindowStyle', 'Hidden',
             '-Command',
             r'''
-$maxWait = 20;
+$maxWait = 25;
 $elapsed = 0;
 Add-Type -AssemblyName System.Windows.Forms;
 $shell = New-Object -ComObject WScript.Shell;
 while ($elapsed -lt $maxWait) {
-  Start-Sleep -Milliseconds 500;
-  $elapsed += 0.5;
-  $proc = Get-Process | Where-Object { $_.MainWindowTitle -like "*ChatGPT*" } | Select-Object -First 1;
-  if ($proc) {
-    Start-Sleep -Milliseconds 800;
-    $shell.AppActivate($proc.Id) | Out-Null;
-    Start-Sleep -Milliseconds 400;
+  Start-Sleep -Milliseconds 600;
+  $elapsed += 0.6;
+  $activated = $false;
+  foreach ($title in @('ChatGPT', 'Google Chrome', 'Microsoft Edge', 'Edge', 'Chrome')) {
+    if ($shell.AppActivate($title)) {
+      $activated = $true;
+      break;
+    }
+  }
+  if ($activated) {
+    Start-Sleep -Milliseconds 1500;
     [System.Windows.Forms.SendKeys]::SendWait("^v");
     break;
   }
@@ -849,6 +874,14 @@ while ($elapsed -lt $maxWait) {
       } catch (e) {
         debugPrint('PowerShell paste automation error: $e');
       }
+    } else if (Platform.isAndroid && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📋 Image copied! Tap the message box in ChatGPT and attach the image.'),
+          backgroundColor: Color(0xFF3E82F7),
+          duration: Duration(seconds: 4),
+        ),
+      );
     }
   }
 
