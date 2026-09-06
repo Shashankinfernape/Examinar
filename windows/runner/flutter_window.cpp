@@ -25,7 +25,19 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
-  SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  HWND viewHwnd = flutter_controller_->view()->GetNativeWindow();
+  SetChildContent(viewHwnd);
+
+  // Allow drag and drop across privilege levels (e.g. from non-admin Explorer to admin process)
+  HWND hwnd = GetHandle();
+  ChangeWindowMessageFilterEx(hwnd, WM_DROPFILES, MSGFLT_ALLOW, nullptr);
+  ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
+  ChangeWindowMessageFilterEx(hwnd, 0x0049 /* WM_COPYGLOBALDATA */, MSGFLT_ALLOW, nullptr);
+  if (viewHwnd) {
+    ChangeWindowMessageFilterEx(viewHwnd, WM_DROPFILES, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(viewHwnd, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(viewHwnd, 0x0049 /* WM_COPYGLOBALDATA */, MSGFLT_ALLOW, nullptr);
+  }
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();

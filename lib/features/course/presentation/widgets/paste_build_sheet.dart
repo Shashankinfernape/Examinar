@@ -7,6 +7,7 @@ import 'package:dotted_border/dotted_border.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/course_repository.dart';
@@ -83,6 +84,52 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       }
     } catch (e) {
       debugPrint("Error picking file: $e");
+    }
+  }
+
+  Future<void> _handlePasteFromClipboard() async {
+    try {
+      final imageBytes = await Pasteboard.image;
+      if (imageBytes != null && imageBytes.isNotEmpty) {
+        final tempDir = await getTemporaryDirectory();
+        final tempFile = File('${tempDir.path}/clipboard_image_${DateTime.now().millisecondsSinceEpoch}.png');
+        await tempFile.writeAsBytes(imageBytes);
+        await _processFile(tempFile.path);
+        return;
+      }
+
+      final files = await Pasteboard.files();
+      if (files.isNotEmpty) {
+        await _processFile(files.first);
+        return;
+      }
+
+      final text = await Pasteboard.text;
+      if (text != null && text.trim().isNotEmpty) {
+        setState(() {
+          _textController.text = text;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('📋 Pasted text from clipboard!'),
+              backgroundColor: Color(0xFF3E82F7),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Clipboard is empty! Copy an image or file first.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error pasting from clipboard: $e');
     }
   }
 
@@ -307,6 +354,27 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                                 style: TextStyle(
                                   color: Colors.white30,
                                   fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                                  side: const BorderSide(color: Colors.white24),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 10,
+                                  ),
+                                ),
+                                onPressed: _isProcessing ? null : _handlePasteFromClipboard,
+                                icon: const Icon(Icons.content_paste_rounded, size: 16, color: Colors.blueAccent),
+                                label: const Text(
+                                  'Paste from Clipboard (Image / File)',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ],
