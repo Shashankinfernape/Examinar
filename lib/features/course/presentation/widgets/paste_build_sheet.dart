@@ -38,10 +38,39 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   bool _promptSent = false; // true after ChatGPT is opened
 
   @override
+  void initState() {
+    super.initState();
+    DesktopDrop.instance.init();
+    DesktopDrop.instance.addRawDropEventListener(_handleRawDropEvent);
+  }
+
+  @override
   void dispose() {
+    DesktopDrop.instance.removeRawDropEventListener(_handleRawDropEvent);
     _textController.dispose();
     _gptResponseController.dispose();
     super.dispose();
+  }
+
+  void _handleRawDropEvent(DropEvent event) async {
+    if (event is DropEnterEvent) {
+      if (!_isDragging && mounted) {
+        setState(() => _isDragging = true);
+      }
+    } else if (event is DropExitEvent) {
+      if (_isDragging && mounted) {
+        setState(() => _isDragging = false);
+      }
+    } else if (event is DropDoneEvent) {
+      if (mounted) {
+        setState(() => _isDragging = false);
+      }
+      if (event.files.isNotEmpty) {
+        final path = event.files.first.path;
+        debugPrint('RAW DROP EVENT CAPTURED: $path');
+        await _processFile(path);
+      }
+    }
   }
 
   Future<void> _handleFileSelection() async {
@@ -53,11 +82,12 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         await _processFile(result.files.single.path!);
       }
     } catch (e) {
-      debugPrint("Error picking file: \$e");
+      debugPrint("Error picking file: $e");
     }
   }
 
   Future<void> _processFile(String path) async {
+    if (_isProcessing) return;
     setState(() => _isProcessing = true);
     try {
       final ext = path.toLowerCase().split('.').last;
@@ -74,8 +104,16 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         setState(() => _textController.text = text);
 
       } else {
-        // All other types (images, docs, etc.) — copy file to clipboard
-        // so user can Ctrl+V directly in ChatGPT
+        // All other types (images, docs, etc.) — copy file and image bytes to clipboard
+        final isImage = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'].contains(ext);
+        if (isImage) {
+          try {
+            final bytes = await File(path).readAsBytes();
+            await Pasteboard.writeImage(bytes);
+          } catch (err) {
+            debugPrint('writeImage error: $err');
+          }
+        }
         await Pasteboard.writeFiles([path]);
         setState(() => _textController.text = '');
         await Future.delayed(const Duration(milliseconds: 150));
