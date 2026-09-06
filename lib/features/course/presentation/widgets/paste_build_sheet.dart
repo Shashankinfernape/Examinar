@@ -737,24 +737,27 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     try {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } catch (e) {
-      debugPrint('launchUrl direct failed, trying explorer fallback: $e');
-      try {
-        await Process.start('explorer', [url.toString()]);
-      } catch (err) {
-        debugPrint('explorer fallback failed: $err');
+      debugPrint('launchUrl direct failed: $e');
+      if (Platform.isWindows) {
+        try {
+          await Process.start('explorer', [url.toString()]);
+        } catch (err) {
+          debugPrint('explorer fallback failed: $err');
+        }
       }
     }
 
-    // Smart wait: poll every 500ms until a browser window with "ChatGPT" appears, then Ctrl+V
-    try {
-      await Process.start(
-        'powershell',
-        [
-          '-NoProfile',
-          '-ExecutionPolicy', 'Bypass',
-          '-WindowStyle', 'Hidden',
-          '-Command',
-          r'''
+    // Smart wait: on Windows, poll every 500ms until a browser window with "ChatGPT" appears, then Ctrl+V
+    if (Platform.isWindows) {
+      try {
+        await Process.start(
+          'powershell',
+          [
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-WindowStyle', 'Hidden',
+            '-Command',
+            r'''
 $maxWait = 20;
 $elapsed = 0;
 Add-Type -AssemblyName System.Windows.Forms;
@@ -772,11 +775,12 @@ while ($elapsed -lt $maxWait) {
   }
 }
 ''',
-        ],
-        runInShell: false,
-      );
-    } catch (e) {
-      debugPrint('PowerShell paste automation error: $e');
+          ],
+          runInShell: false,
+        );
+      } catch (e) {
+        debugPrint('PowerShell paste automation error: $e');
+      }
     }
   }
 
