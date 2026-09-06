@@ -47,8 +47,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   Future<void> _handleFileSelection() async {
     try {
       final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf', 'txt', 'png', 'jpg', 'jpeg'],
+        type: FileType.any,
       );
       if (result != null && result.files.single.path != null) {
         await _processFile(result.files.single.path!);
@@ -61,51 +60,35 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   Future<void> _processFile(String path) async {
     setState(() => _isProcessing = true);
     try {
-      if (path.toLowerCase().endsWith('.pdf')) {
-        final File file = File(path);
-        final List<int> bytes = await file.readAsBytes();
+      final ext = path.toLowerCase().split('.').last;
+
+      if (ext == 'pdf') {
+        final List<int> bytes = await File(path).readAsBytes();
         final PdfDocument document = PdfDocument(inputBytes: bytes);
         final String text = PdfTextExtractor(document).extractText();
         document.dispose();
+        setState(() => _textController.text = text);
 
-        setState(() {
-          _textController.text = text;
-        });
-      } else if (path.toLowerCase().endsWith('.txt')) {
+      } else if (ext == 'txt') {
         final String text = await File(path).readAsString();
-        setState(() {
-          _textController.text = text;
-        });
-      } else if (path.toLowerCase().endsWith('.png') ||
-          path.toLowerCase().endsWith('.jpg') ||
-          path.toLowerCase().endsWith('.jpeg')) {
-        // Copy image to system clipboard so user can Ctrl+V in ChatGPT
-        await Pasteboard.writeFiles([path]);
+        setState(() => _textController.text = text);
 
-        // Clear the text field - the image is in the clipboard, not the text
-        setState(() {
-          _textController.text = '';
-        });
-
-        // Open ChatGPT with the preprompt (without any image placeholder text)
-        await Future.delayed(const Duration(milliseconds: 150));
-        _launchChatGptWithImagePreprompt();
       } else {
-        setState(() {
-          _textController.text =
-              'Attached file: ${path.split(Platform.pathSeparator).last}\n\n(Currently only PDF and TXT text extraction is supported automatically.)';
-        });
+        // All other types (images, docs, etc.) — copy file to clipboard
+        // so user can Ctrl+V directly in ChatGPT
+        await Pasteboard.writeFiles([path]);
+        setState(() => _textController.text = '');
+        await Future.delayed(const Duration(milliseconds: 150));
+        await _launchChatGptWithImagePreprompt();
       }
     } catch (e) {
-      debugPrint("Error processing file: \$e");
+      debugPrint('Error processing file: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to read file contents')),
+        SnackBar(content: Text('Failed to read file: $e')),
       );
     } finally {
-      if (mounted) {
-        setState(() => _isProcessing = false);
-      }
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -193,7 +176,9 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                       onDragDone: (details) async {
                         setState(() => _isDragging = false);
                         if (details.files.isNotEmpty) {
-                          await _processFile(details.files.first.path);
+                          final f = details.files.first;
+                          debugPrint('DROP: path=${f.path} name=${f.name}');
+                          await _processFile(f.path);
                         }
                       },
                       child: DottedBorder(
@@ -264,7 +249,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                               ),
                               const SizedBox(height: 12),
                               const Text(
-                                'Supported: PDF, TXT',
+                                'Images, PDF, TXT — anything ChatGPT accepts',
                                 style: TextStyle(
                                   color: Colors.white30,
                                   fontSize: 12,
