@@ -87,8 +87,19 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   }
 
   Future<void> _processFile(String path) async {
-    if (_isProcessing) return;
     setState(() => _isProcessing = true);
+    final fileName = path.split(Platform.pathSeparator).last;
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('📂 Received $fileName — preparing ChatGPT...'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: const Color(0xFF3E82F7),
+        ),
+      );
+    }
+
     try {
       final ext = path.toLowerCase().split('.').last;
 
@@ -114,7 +125,12 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
             debugPrint('writeImage error: $err');
           }
         }
-        await Pasteboard.writeFiles([path]);
+        try {
+          await Pasteboard.writeFiles([path]);
+        } catch (err) {
+          debugPrint('writeFiles error: $err');
+        }
+        
         setState(() => _textController.text = '');
         await Future.delayed(const Duration(milliseconds: 150));
         await _launchChatGptWithImagePreprompt();
@@ -123,7 +139,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
       debugPrint('Error processing file: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to read file: $e')),
+        SnackBar(content: Text('Error reading file: $e'), backgroundColor: Colors.redAccent),
       );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
@@ -718,17 +734,27 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     setState(() => _promptSent = true);
 
     // Open ChatGPT with preprompt in URL
-    if (await canLaunchUrl(url)) {
+    try {
       await launchUrl(url, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('launchUrl direct failed, trying explorer fallback: $e');
+      try {
+        await Process.start('explorer', [url.toString()]);
+      } catch (err) {
+        debugPrint('explorer fallback failed: $err');
+      }
     }
 
     // Smart wait: poll every 500ms until a browser window with "ChatGPT" appears, then Ctrl+V
-    await Process.start(
-      'powershell',
-      [
-        '-WindowStyle', 'Hidden',
-        '-Command',
-        r'''
+    try {
+      await Process.start(
+        'powershell',
+        [
+          '-NoProfile',
+          '-ExecutionPolicy', 'Bypass',
+          '-WindowStyle', 'Hidden',
+          '-Command',
+          r'''
 $maxWait = 20;
 $elapsed = 0;
 Add-Type -AssemblyName System.Windows.Forms;
@@ -746,9 +772,12 @@ while ($elapsed -lt $maxWait) {
   }
 }
 ''',
-      ],
-      runInShell: false,
-    );
+        ],
+        runInShell: false,
+      );
+    } catch (e) {
+      debugPrint('PowerShell paste automation error: $e');
+    }
   }
 
   void _generatePrompt([bool autoLaunch = false, String? imagePathForClipboard]) async {
