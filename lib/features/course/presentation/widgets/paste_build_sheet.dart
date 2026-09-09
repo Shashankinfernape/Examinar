@@ -35,10 +35,17 @@ class PasteBuildSheet extends ConsumerStatefulWidget {
 class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   final _textController = TextEditingController();
   final _gptResponseController = TextEditingController();
-  bool _isProcessing = false;
+  // Two separate spinners so they can't bleed into each other.
+  bool _isLoadingFiles = false;   // true while picking/dropping files
+  bool _isProceedProcessing = false; // true while sending to ChatGPT / parsing
   bool _isDragging = false;
   bool _promptSent = false; // true after ChatGPT is opened
   List<String> _attachments = [];
+  int _automationCounter = 0; // Token for cancelling PC automation loops
+  int _resetId = 0;           // Incremented on every Reset — kills stale async work
+
+  // Convenience getter: any spinner active
+  bool get _isProcessing => _isLoadingFiles || _isProceedProcessing;
 
   @override
   void dispose() {
@@ -48,20 +55,25 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   }
 
   Future<void> _handleFileSelection() async {
+    final myResetId = _resetId;
+    setState(() => _isLoadingFiles = true);
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.any,
         allowMultiple: true,
       );
+      if (_resetId != myResetId) return; // Reset was clicked while picker was open
       if (result != null && result.files.isNotEmpty) {
         for (var file in result.files) {
-          if (file.path != null) {
-            await _addAttachment(file.path!);
+          if (file.path != null && _resetId == myResetId) {
+            await _addAttachment(file.path!, resetId: myResetId);
           }
         }
       }
     } catch (e) {
       debugPrint("Error picking file: $e");
+    } finally {
+      if (mounted && _resetId == myResetId) setState(() => _isLoadingFiles = false);
     }
   }
 
@@ -113,43 +125,48 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     }
   }
 
-  Future<void> _addAttachment(String path) async {
-    setState(() => _isProcessing = true);
-    final fileName = path.split(Platform.pathSeparator).last;
+  Future<void> _addAttachment(String path, {int? dropToken, int? resetId}) async {
+    // Bail if Reset was clicked since this operation started.
+    if (resetId != null && _resetId != resetId) return;
+    if (dropToken != null && _automationCounter != dropToken) return;
 
     try {
       final ext = path.toLowerCase().split('.').last;
 
       if (ext == 'pdf') {
+        if (!mounted) return;
+        setState(() => _isLoadingFiles = true);
         final List<int> bytes = await File(path).readAsBytes();
+        if (!mounted || (resetId != null && _resetId != resetId)) return;
         final PdfDocument document = PdfDocument(inputBytes: bytes);
         final String text = PdfTextExtractor(document).extractText();
         document.dispose();
         setState(() {
           _textController.text = text;
-          _isProcessing = false;
+          _isLoadingFiles = false;
         });
       } else if (ext == 'txt') {
+        if (!mounted) return;
+        setState(() => _isLoadingFiles = true);
         final String text = await File(path).readAsString();
+        if (!mounted || (resetId != null && _resetId != resetId)) return;
         setState(() {
           _textController.text = text;
-          _isProcessing = false;
+          _isLoadingFiles = false;
         });
       } else {
-        // Assume image/doc and add to attachments
-        setState(() {
-          _attachments.add(path);
-          _isProcessing = false;
-        });
+        // Image/doc: just add to the list — no heavy async work needed
+        if (!mounted || (resetId != null && _resetId != resetId)) return;
+        setState(() => _attachments.add(path));
       }
     } catch (e) {
       debugPrint('Error adding attachment: $e');
-      if (mounted) {
+      if (mounted && (resetId == null || _resetId == resetId)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error reading file: $e'), backgroundColor: Colors.redAccent),
         );
+        setState(() => _isLoadingFiles = false);
       }
-      setState(() => _isProcessing = false);
     }
   }
 
@@ -243,22 +260,40 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                       onPerformDrop: (event) async {
                         if (mounted) setState(() => _isDragging = false);
                         if (event.session.items.isEmpty) return;
-                        setState(() => _isProcessing = true);
+                        setState(() => _isLoadingFiles = true);
+                        // Capture tokens so Reset can kill these background callbacks
+                        final dropToken = _automationCounter;
+                        final myResetId = _resetId;
                         int idx = 0;
+                        int pendingCallbacks = event.session.items.where((i) => i.dataReader != null).length;
+                        if (pendingCallbacks == 0) {
+                          setState(() => _isLoadingFiles = false);
+                          return;
+                        }
                         for (final item in event.session.items) {
                           idx++;
                           final currentIdx = idx;
                           if (item.dataReader != null) {
                              item.dataReader!.getFile(null, (file) async {
                                 try {
+                                  // Bail immediately if Reset was clicked
+                                  if (_automationCounter != dropToken || _resetId != myResetId) return;
                                   final bytes = await file.readAll();
+                                  if (_automationCounter != dropToken || _resetId != myResetId) return;
                                   final tempDir = await getTemporaryDirectory();
                                   final ext = file.fileName?.split('.').last ?? 'png';
                                   final tempFile = File('${tempDir.path}/drop_${DateTime.now().microsecondsSinceEpoch}_${currentIdx}_${file.fileName ?? "img"}.$ext');
                                   await tempFile.writeAsBytes(bytes);
-                                  await _addAttachment(tempFile.path);
+                                  if (_automationCounter != dropToken || _resetId != myResetId) return;
+                                  await _addAttachment(tempFile.path, dropToken: dropToken, resetId: myResetId);
                                 } catch (e) {
                                   debugPrint("Drop error: $e");
+                                } finally {
+                                  pendingCallbacks--;
+                                  // When ALL callbacks are done (or cancelled), clear the spinner
+                                  if (pendingCallbacks <= 0 && mounted && _resetId == myResetId) {
+                                    setState(() => _isLoadingFiles = false);
+                                  }
                                 }
                              });
                           }
@@ -531,8 +566,18 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                         ),
                       ),
                       TextButton(
-                        onPressed: () => setState(() => _promptSent = false),
-                        child: const Text('Reset', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                        onPressed: () {
+                          _automationCounter++; // Kill PC paste loops
+                          _resetId++;           // Kill ALL stale file-loading callbacks
+                          setState(() {
+                            _promptSent = false;
+                            _isLoadingFiles = false;    // Force-clear drop/pick spinner
+                            _isProceedProcessing = false; // Force-clear proceed spinner
+                            _attachments.clear();
+                            _textController.clear();
+                          });
+                        },
+                        child: const Text('Reset Page', style: TextStyle(color: Colors.white38, fontSize: 12)),
                       ),
                     ],
                   ),
@@ -620,7 +665,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
     final text = _textController.text.trim();
     if (text.isEmpty) return;
 
-    setState(() => _isProcessing = true);
+    setState(() => _isProceedProcessing = true);
 
     try {
       // 1. Identify Questions & Answers
@@ -820,7 +865,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) setState(() => _isProceedProcessing = false);
     }
   }
 
@@ -897,104 +942,92 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   }
 
   Future<void> _launchChatGptWithImages(List<String> imagePaths) async {
-    if (_isProcessing) return;
-    setState(() => _isProcessing = true);
+    if (_isProceedProcessing) return;
+    final currentAutomation = _automationCounter;
+    setState(() => _isProceedProcessing = true);
 
     const preprompt =
-        'I am providing you with a photo of my past exam paper. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.\\n\\n'
-        'FORMATTING RULES:\\n'
-        '1. PART A (Short Answers): Number all short answer questions sequentially starting from 1. Give [2 Marks] for each question.\\n'
-        '2. PART B (Essay Questions): Number the main questions from 11 to 15. Subsections like 11(a), 11(b), etc. Give [13 Marks] total.\\n'
-        '3. PART C (Case Study/Application): Number the main question as 16. Give [15 Marks] total.\\n'
-        '4. DIFFICULTY RATING: Append 1 to 5 stars (★) at the end of each question.\\n'
-        '5. Provide a brief answer key or hints on the lines immediately below each question.\\n\\n'
+        'I am providing you with a photo of my past exam paper. I need you to extract the most important questions and format them strictly according to the rules below. Do not output any conversational text, introductions, or conclusions. Only output the questions.\n\n'
+        'FORMATTING RULES:\n'
+        '1. PART A (Short Answers): Number all short answer questions sequentially starting from 1. Give [2 Marks] for each question.\n'
+        '2. PART B (Essay Questions): Number the main questions from 11 to 15. Subsections like 11(a), 11(b), etc. Give [13 Marks] total.\n'
+        '3. PART C (Case Study/Application): Number the main question as 16. Give [15 Marks] total.\n'
+        '4. DIFFICULTY RATING: Append 1 to 5 stars (★☆) at the end of each question.\n'
+        '5. Provide a brief answer key or hints on the lines immediately below each question.\n\n'
         'The images I am attaching ARE the exam papers. Please read them carefully.';
 
-    // 1. On Android: Try to open ChatGPT App directly. If not found, show custom AI fallback menu.
-    if (Platform.isAndroid) {
-      if (!mounted) return;
-      setState(() => _promptSent = true);
-      
-      // Copy prompt to clipboard because some AI apps (like ChatGPT) drop the text when receiving an image intent
-      await Clipboard.setData(const ClipboardData(text: preprompt));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Prompt copied! Please paste prompt into the AI app.')),
-        );
-      }
-      
-      // Try launching ChatGPT directly
-      final success = await _shareDirectlyToApp(imagePaths, preprompt, 'com.openai.chatgpt');
-      if (!success) {
-        await _showAiFallbackDialog(imagePaths, preprompt);
-      }
-      return;
-    }
-
-    if (Platform.isIOS) {
-      if (!mounted) return;
-      setState(() => _promptSent = true);
-      try {
+    try {
+      // 1. On Android: Try to open ChatGPT App directly. If not found, show custom AI fallback menu.
+      if (Platform.isAndroid) {
+        if (!mounted) return;
+        setState(() => _promptSent = true);
+        
+        // Copy prompt to clipboard because some AI apps (like ChatGPT) drop the text when receiving an image intent
         await Clipboard.setData(const ClipboardData(text: preprompt));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Prompt copied! Sending image... Please paste prompt in ChatGPT.')),
+            const SnackBar(content: Text('Prompt copied! Please paste prompt into the AI app.')),
           );
         }
-        final xFiles = imagePaths.map((p) => XFile(p)).toList();
-        await Share.shareXFiles(xFiles, subject: 'Exam Paper');
-      } catch (e) {
-        debugPrint('Share failed: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Share failed: $e')),
-          );
+
+        // ⚠️ CLEAR SPINNER NOW — before startActivity, because when ChatGPT opens the app
+        // is backgrounded and the finally block may not render before the user returns.
+        if (mounted) setState(() {
+          _isProceedProcessing = false;
+          _isLoadingFiles = false;
+        });
+        
+        // Launch ChatGPT directly. startActivity() returns immediately in Kotlin.
+        final success = await _shareDirectlyToApp(imagePaths, preprompt, 'com.openai.chatgpt');
+        if (!success && mounted) {
+          await _showAiFallbackDialog(imagePaths, preprompt);
         }
+        return; // finally also runs (belt & suspenders), but spinner is already false
       }
-      if (mounted) setState(() => _isProcessing = false); return; // Stop here for iOS
-    }
 
-    // Mark prompt as sent — UI will shift to response pane
-    if (!mounted) return;
-    setState(() => _promptSent = true);
+      if (Platform.isIOS) {
+        if (!mounted) return;
+        setState(() => _promptSent = true);
+        // Clear spinner before handing off to iOS share sheet
+        if (mounted) setState(() {
+          _isProceedProcessing = false;
+          _isLoadingFiles = false;
+        });
+        try {
+          await Clipboard.setData(const ClipboardData(text: preprompt));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Prompt copied! Sending image... Please paste prompt in ChatGPT.')),
+            );
+          }
+          final xFiles = imagePaths.map((p) => XFile(p)).toList();
+          await Share.shareXFiles(xFiles, subject: 'Exam Paper');
+        } catch (e) {
+          debugPrint('Share failed: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Share failed: $e')),
+            );
+          }
+        }
+        return; // finally also runs
+      }
 
-    // 2. On Windows: Save PowerShell script to temp file and run it
-    if (Platform.isWindows) {
-      try {
-        final tempDir = await getTemporaryDirectory();
-        
-        // Save preprompt to a text file to avoid PowerShell string escaping issues
-        final textFile = File('${tempDir.path}\\chatgpt_preprompt.txt');
-        await textFile.writeAsString(preprompt);
-        final safeTextPath = textFile.path.replaceAll("'", "''");
+      // Mark prompt as sent — UI will shift to response pane
+      if (!mounted) return;
+      setState(() => _promptSent = true);
 
-        // Build PowerShell lines to add each image path sequentially
-        final imagePasteBlocks = imagePaths.map((path) {
-            final safePath = path.replaceAll('/', r'\').replaceAll("'", "''");
-            return '''
-  \$singleFile = New-Object System.Collections.Specialized.StringCollection
-  \$singleFile.Add('$safePath')
-  for (\$i=0; \$i -lt 10; \$i++) {
-      try {
-          [System.Windows.Forms.Clipboard]::SetFileDropList(\$singleFile)
-          break
-      } catch { Start-Sleep -Milliseconds 300 }
-  }
-    Start-Sleep -Milliseconds 500
-    \$shell.SendKeys('^v')
-    Start-Sleep -Milliseconds 2000
-''';
-        }).join('\n');
-
-        final scriptFile = File('${tempDir.path}\\paste_sequence.ps1');
-        
-        final scriptContent = '''
-Add-Type -AssemblyName System.Windows.Forms
-
-# Open ChatGPT
-Start-Process "https://chatgpt.com"
-
-# Wait for browser window
+      // 2. On Windows: Reliable Dart-controlled sequence
+      if (Platform.isWindows) {
+        try {
+          // Step 1: Open ChatGPT
+          Process.run('powershell', ['-NoProfile', '-Command', 'Start-Process "https://chatgpt.com"']);
+          
+          // Step 2: Put Preprompt on Clipboard via Flutter
+          await Clipboard.setData(const ClipboardData(text: preprompt));
+          
+          // Step 3: Wait for Window and Paste Text
+          final textPasteScript = '''
 \$shell = New-Object -ComObject WScript.Shell
 \$maxWait = 60
 \$elapsed = 0
@@ -1008,62 +1041,60 @@ while (\$elapsed -lt \$maxWait) {
       break
     }
   }
-  if (\$activated) {
+  if (\$activated) { break }
+}
+if (\$activated) {
+  Start-Sleep -Milliseconds 2500
+  \$shell.SendKeys('^v')
+}
+''';
+          await Process.run('powershell', ['-NoProfile', '-Command', textPasteScript]);
+          if (_automationCounter != currentAutomation) return; // Cancelled
+          
+          // Crucial: Wait for ChatGPT's UI to parse the text (much faster than images)
+          await Future.delayed(const Duration(milliseconds: 800));
+          if (_automationCounter != currentAutomation) return; // Cancelled
+          
+          // Step 4: Loop over images, injecting them one by one natively
+          final imagePasteScript = '''
+\$shell = New-Object -ComObject WScript.Shell
+foreach (\$title in @('ChatGPT', 'Google Chrome', 'Microsoft Edge', 'Edge', 'Chrome', 'Brave', 'Firefox')) {
+  if (\$shell.AppActivate(\$title)) {
+    Start-Sleep -Milliseconds 200
+    \$shell.SendKeys('^v')
     break
   }
 }
-
-if (\$activated) {
-  # Wait for page to fully load (increased for slower internet connections)
-  Start-Sleep -Milliseconds 5000
-
-  # Load text from file and copy to clipboard with retry loop
-  \$text = [IO.File]::ReadAllText('$safeTextPath')
-  for (\$i=0; \$i -lt 10; \$i++) {
-      try {
-          [System.Windows.Forms.Clipboard]::SetText(\$text)
-          break
-      } catch { Start-Sleep -Milliseconds 200 }
-  }
-  Start-Sleep -Milliseconds 300
-
-  # Paste Text
-  \$shell.SendKeys('^v')
-  
-  # Crucial: Wait for ChatGPT's React UI to finish parsing the massive text block before pasting images
-  Start-Sleep -Milliseconds 2500
-
-$imagePasteBlocks
-}
 ''';
-        await scriptFile.writeAsString(scriptContent);
+          for (final path in imagePaths) {
+             if (_automationCounter != currentAutomation) return; // Cancelled
+             await Pasteboard.writeFiles([path]);
+             await Future.delayed(const Duration(milliseconds: 150)); // allow clipboard to settle
+             if (_automationCounter != currentAutomation) return; // Cancelled
+             
+             await Process.run('powershell', ['-NoProfile', '-Command', imagePasteScript]);
+             
+             // Wait for ChatGPT to process this specific image (bottleneck: React DOM render)
+             await Future.delayed(const Duration(milliseconds: 1300));
+          }
 
-        // Run the script asynchronously
-        Process.start(
-          'powershell',
-          [
-            '-STA',
-            '-NoProfile',
-            '-ExecutionPolicy', 'Bypass',
-            '-WindowStyle', 'Hidden',
-            '-File', scriptFile.path
-          ],
-          runInShell: false,
-        );
-      } catch (e) {
-        debugPrint('PowerShell automation error: $e');
+        } catch (e) {
+          debugPrint('PowerShell automation error: $e');
+        }
+        return;
       }
-      if (mounted) setState(() => _isProcessing = false); return; // Windows automation complete, exit method
-    }
 
-    // 3. Open ChatGPT with preprompt in URL (Desktop fallback / other platforms)
-    final url = Uri.parse(
-      'https://chatgpt.com/?q=\${Uri.encodeComponent(preprompt)}',
-    );
-    try {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } catch (e) {
-      debugPrint('launchUrl direct failed: $e');
+      // 3. Open ChatGPT with preprompt in URL (Desktop fallback / other platforms)
+      final url = Uri.parse(
+        'https://chatgpt.com/?q=\${Uri.encodeComponent(preprompt)}',
+      );
+      try {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } catch (e) {
+        debugPrint('launchUrl direct failed: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _isProceedProcessing = false);
     }
   }
 
