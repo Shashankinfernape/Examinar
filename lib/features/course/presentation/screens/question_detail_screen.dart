@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'dart:io' as io;
 import 'dart:async';
+import 'dart:convert';
 import '../widgets/difficulty_stars.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:path_provider/path_provider.dart';
@@ -65,12 +66,15 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   final _questionFocusNode = FocusNode();
   final List<NoteItem> _noteItems = [];
   String? _selectedImageId;
+  bool _isDraggingImage = false;
+  String? _draggedImageId;
   bool _hasInitializedNotes = false;
   bool _hasInitializedQuestion = false;
   bool _isDragging = false;
   Timer? _debounce;
   Timer? _questionDebounce;
   Question? _currentQuestion;
+  static const _platformChannel = MethodChannel('com.examcommandcenter.direct_share');
 
   @override
   void initState() {
@@ -627,7 +631,6 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         thumbColor = AppTheme.inProgressColor.withOpacity(0.25);
         break;
       case QuestionStatus.incomplete:
-      default:
         thumbColor = Colors.white.withOpacity(0.2);
         break;
     }
@@ -735,6 +738,32 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     HapticFeedback.mediumImpact();
   }
 
+  Future<Uint8List?> _readBytesFromNativeUri(String uriStr) async {
+    try {
+      final bytes = await _platformChannel.invokeMethod<Uint8List>('readUriBytes', {'uri': uriStr});
+      return bytes;
+    } catch (e) {
+      debugPrint('readUriBytes error: $e');
+      return null;
+    }
+  }
+
+  Future<Uint8List?> _getNativeClipboardImage() async {
+    try {
+      final bytes = await _platformChannel.invokeMethod<Uint8List>('getClipboardImage');
+      return bytes;
+    } catch (e) {
+      debugPrint('getClipboardImage error: $e');
+      return null;
+    }
+  }
+
+  void _ensureTrailingTextItem(Question question) {
+    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+      _createAndAddTextItem('', question);
+    }
+  }
+
   void _initializeNotes(String rawNotes, Question question) {
     for (final item in _noteItems) {
       if (item is NoteTextItem) item.dispose();
@@ -747,7 +776,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     for (final match in matches) {
       if (match.start > lastEnd) {
         final textPart = rawNotes.substring(lastEnd, match.start);
-        _createAndAddTextItem(textPart, question);
+        _checkAndAddTextSegment(textPart, question);
       }
       final width = int.tryParse(match.group(1) ?? '100') ?? 100;
       final path = match.group(2) ?? '';
@@ -760,12 +789,60 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     }
 
     if (lastEnd < rawNotes.length) {
-      _createAndAddTextItem(rawNotes.substring(lastEnd), question);
+      _checkAndAddTextSegment(rawNotes.substring(lastEnd), question);
     }
 
-    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
-      _createAndAddTextItem('', question);
+    _consolidateAdjacentTextItems();
+    _ensureTrailingTextItem(question);
+  }
+
+  void _checkAndAddTextSegment(String text, Question question) {
+    // Auto-heal any content:// URI that was pasted as raw text previously
+    final uriMatch = RegExp(r'content://\S+').firstMatch(text);
+    if (uriMatch != null) {
+      final uriStr = uriMatch.group(0)!;
+      final cleanedText = text.replaceFirst(uriStr, '').trim();
+      if (cleanedText.isNotEmpty) {
+        _createAndAddTextItem(cleanedText, question);
+      }
+      _readBytesFromNativeUri(uriStr).then((bytes) async {
+        if (bytes != null && bytes.isNotEmpty) {
+          final savedPath = await _saveFilePermanently(bytes, 'jpg');
+          _noteItems.add(NoteImageItem(
+            id: const Uuid().v4(),
+            imagePath: savedPath,
+            widthPercent: 100,
+          ));
+          _ensureTrailingTextItem(question);
+          _saveNotes(question, text: _serializeNotes());
+          if (mounted) setState(() {});
+        }
+      });
+      return;
     }
+
+    // Auto-heal any base64 data URI that was pasted as raw text
+    if (text.startsWith('data:image/') && text.contains('base64,')) {
+      try {
+        final base64Str = text.substring(text.indexOf('base64,') + 7).trim();
+        final bytes = base64Decode(base64Str);
+        if (bytes.isNotEmpty) {
+          _saveFilePermanently(bytes, 'jpg').then((savedPath) {
+            _noteItems.add(NoteImageItem(
+              id: const Uuid().v4(),
+              imagePath: savedPath,
+              widthPercent: 100,
+            ));
+            _ensureTrailingTextItem(question);
+            _saveNotes(question, text: _serializeNotes());
+            if (mounted) setState(() {});
+          });
+          return;
+        }
+      } catch (_) {}
+    }
+
+    _createAndAddTextItem(text, question);
   }
 
   NoteTextItem _createAndAddTextItem(String text, Question question) {
@@ -818,7 +895,32 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   }
 
   Future<void> _pasteIntoNotebook(Question question) async {
-    // 1. Try pasting raw image bytes from Pasteboard
+    // 1. Try native Android ClipboardManager via MethodChannel (resolves content:// URIs directly!)
+    try {
+      final nativeBytes = await _getNativeClipboardImage();
+      if (nativeBytes != null && nativeBytes.isNotEmpty) {
+        final savedPath = await _saveFilePermanently(nativeBytes, 'jpg');
+        _insertImageItemAtCursorOrEnd(savedPath, question);
+        _unfocusAllNotes();
+        FocusScope.of(context).unfocus();
+        setState(() => _selectedImageId = null);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image pasted into Notebook!'),
+              backgroundColor: Colors.white24,
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+    } catch (e) {
+      debugPrint('Native clipboard check: $e');
+    }
+
+    // 2. Try Pasteboard.image
     try {
       final imageBytes = await Pasteboard.image;
       if (imageBytes != null && imageBytes.isNotEmpty) {
@@ -843,14 +945,93 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       debugPrint('Pasteboard image check failed: $e');
     }
 
-    // 2. Try pasting image files from Pasteboard
+    // 3. Try Pasteboard.files()
     try {
       final files = await Pasteboard.files();
       if (files.isNotEmpty) {
         for (final p in files) {
-          final lower = p.toLowerCase();
-          if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
-            final bytes = await io.File(p).readAsBytes();
+          if (p.startsWith('content://') || p.startsWith('file://')) {
+            final bytes = await _readBytesFromNativeUri(p);
+            if (bytes != null && bytes.isNotEmpty) {
+              final savedPath = await _saveFilePermanently(bytes, 'jpg');
+              _insertImageItemAtCursorOrEnd(savedPath, question);
+              _unfocusAllNotes();
+              FocusScope.of(context).unfocus();
+              setState(() => _selectedImageId = null);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Image pasted into Notebook!'),
+                    backgroundColor: Colors.white24,
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+              return;
+            }
+          } else {
+            final f = io.File(p);
+            if (await f.exists()) {
+              final bytes = await f.readAsBytes();
+              final savedPath = await _saveFilePermanently(bytes, 'jpg');
+              _insertImageItemAtCursorOrEnd(savedPath, question);
+              _unfocusAllNotes();
+              FocusScope.of(context).unfocus();
+              setState(() => _selectedImageId = null);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Image pasted into Notebook!'),
+                    backgroundColor: Colors.white24,
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+              return;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Pasteboard file check failed: $e');
+    }
+
+    // 4. Fallback to Clipboard.getData(Clipboard.kTextPlain)
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data != null && data.text != null && data.text!.isNotEmpty) {
+      final text = data.text!.trim();
+
+      // Check if text is a content:// or file:// URI (Samsung keyboard image copy)
+      if (text.startsWith('content://') || text.startsWith('file://')) {
+        final bytes = await _readBytesFromNativeUri(text);
+        if (bytes != null && bytes.isNotEmpty) {
+          final savedPath = await _saveFilePermanently(bytes, 'jpg');
+          _insertImageItemAtCursorOrEnd(savedPath, question);
+          _unfocusAllNotes();
+          FocusScope.of(context).unfocus();
+          setState(() => _selectedImageId = null);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Image pasted into Notebook!'),
+                backgroundColor: Colors.white24,
+                duration: Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          return;
+        }
+      }
+
+      // Check if text is a Base64 data URI
+      if (text.startsWith('data:image/') && text.contains('base64,')) {
+        try {
+          final base64Str = text.substring(text.indexOf('base64,') + 7).trim();
+          final bytes = base64Decode(base64Str);
+          if (bytes.isNotEmpty) {
             final savedPath = await _saveFilePermanently(bytes, 'jpg');
             _insertImageItemAtCursorOrEnd(savedPath, question);
             _unfocusAllNotes();
@@ -868,15 +1049,12 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             }
             return;
           }
+        } catch (e) {
+          debugPrint('Base64 decode error: $e');
         }
       }
-    } catch (e) {
-      debugPrint('Pasteboard file check failed: $e');
-    }
 
-    // 3. Fallback to text from clipboard
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (data != null && data.text != null && data.text!.isNotEmpty) {
+      // Plain human text!
       _insertTextItemAtCursorOrEnd(data.text!, question);
       _unfocusAllNotes();
       FocusScope.of(context).unfocus();
@@ -891,17 +1069,18 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           ),
         );
       }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Clipboard is empty!'),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      return;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Clipboard is empty!'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -1177,6 +1356,182 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     setState(() {});
   }
 
+  void _moveImageBetweenLines(String textItemId, int lineIndex, Question question) {
+    if (_draggedImageId == null) return;
+
+    final imageIndex = _noteItems.indexWhere((it) => it.id == _draggedImageId);
+    final targetTextIndex = _noteItems.indexWhere((it) => it.id == textItemId);
+
+    if (imageIndex == -1 || targetTextIndex == -1) {
+      setState(() {
+        _isDraggingImage = false;
+        _draggedImageId = null;
+      });
+      return;
+    }
+
+    final targetTextItem = _noteItems[targetTextIndex] as NoteTextItem;
+    final lines = targetTextItem.controller.text.split('\n');
+
+    final img = _noteItems.removeAt(imageIndex);
+
+    // Re-find targetTextIndex after removal
+    final curTargetIndex = _noteItems.indexOf(targetTextItem);
+    if (curTargetIndex == -1) {
+      _noteItems.add(img);
+    } else if (lineIndex <= 0) {
+      // Place before the text item
+      _noteItems.insert(curTargetIndex, img);
+    } else if (lineIndex >= lines.length) {
+      // Place after the text item
+      _noteItems.insert(curTargetIndex + 1, img);
+    } else {
+      // Place between lines: split the text item into two
+      final linesBefore = lines.sublist(0, lineIndex).join('\n');
+      final linesAfter = lines.sublist(lineIndex).join('\n');
+
+      targetTextItem.controller.text = linesBefore;
+
+      final afterTextItem = NoteTextItem(
+        id: const Uuid().v4(),
+        initialText: linesAfter,
+      );
+      afterTextItem.focusNode.addListener(() { if (mounted) setState(() {}); });
+      afterTextItem.controller.addListener(() {
+        if (_debounce?.isActive ?? false) _debounce!.cancel();
+        _debounce = Timer(const Duration(milliseconds: 300), () {
+          if (_currentQuestion != null) _saveNotes(_currentQuestion!, silent: true);
+        });
+      });
+
+      _noteItems.insert(curTargetIndex + 1, img);
+      _noteItems.insert(curTargetIndex + 2, afterTextItem);
+    }
+
+    _consolidateAdjacentTextItems();
+    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+      _createAndAddTextItem('', question);
+    }
+
+    _isDraggingImage = false;
+    _draggedImageId = null;
+    _saveNotes(question, text: _serializeNotes());
+    setState(() {});
+  }
+
+  void _moveImageToItemIndex(int targetIndex, Question question) {
+    if (_draggedImageId == null) return;
+    final imageIndex = _noteItems.indexWhere((it) => it.id == _draggedImageId);
+    if (imageIndex == -1) {
+      setState(() {
+        _isDraggingImage = false;
+        _draggedImageId = null;
+      });
+      return;
+    }
+
+    final img = _noteItems.removeAt(imageIndex);
+    final dest = targetIndex.clamp(0, _noteItems.length);
+    _noteItems.insert(dest, img);
+
+    _consolidateAdjacentTextItems();
+    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+      _createAndAddTextItem('', question);
+    }
+
+    _isDraggingImage = false;
+    _draggedImageId = null;
+    _saveNotes(question, text: _serializeNotes());
+    setState(() {});
+  }
+
+  Widget _buildDropTargetSlot({required VoidCallback onAccept, String label = 'PLACE IMAGE HERE'}) {
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => true,
+      builder: (context, candidateData, rejectedData) {
+        final isHovered = candidateData.isNotEmpty;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOut,
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: EdgeInsets.symmetric(vertical: isHovered ? 12 : 6, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isHovered ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isHovered ? Colors.white : Colors.white24,
+              width: isHovered ? 1.5 : 0.8,
+            ),
+          ),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.add_circle_outline_rounded,
+                  size: isHovered ? 14 : 11,
+                  color: isHovered ? Colors.white : Colors.white54,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: isHovered ? Colors.white : Colors.white54,
+                      fontSize: isHovered ? 11 : 9,
+                      fontWeight: isHovered ? FontWeight.w700 : FontWeight.w500,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      onAcceptWithDetails: (details) {
+        HapticFeedback.mediumImpact();
+        onAccept();
+      },
+    );
+  }
+
+  Widget _buildDraggingTextItem(NoteTextItem item, Question question) {
+    final text = item.controller.text;
+    final lines = text.split('\n');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDropTargetSlot(
+          onAccept: () => _moveImageBetweenLines(item.id, 0, question),
+          label: 'DROP BEFORE LINE 1',
+        ),
+        for (int l = 0; l < lines.length; l++) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+            child: Text(
+              lines[l].isEmpty ? ' ' : lines[l],
+              style: GoogleFonts.inter(
+                fontSize: 15,
+                fontWeight: FontWeight.w400,
+                color: AppTheme.textPrimary.withOpacity(0.85),
+                height: 1.6,
+              ),
+            ),
+          ),
+          _buildDropTargetSlot(
+            onAccept: () => _moveImageBetweenLines(item.id, l + 1, question),
+            label: 'DROP AFTER: "${lines[l].length > 20 ? '${lines[l].substring(0, 20)}...' : lines[l]}"',
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildNotebookContent(Question question) {
     return Container(
       width: double.infinity,
@@ -1188,12 +1543,44 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (int i = 0; i < _noteItems.length; i++) ...[
-            if (_noteItems[i] is NoteTextItem)
-              _buildNoteTextField(_noteItems[i] as NoteTextItem, question)
-            else if (_noteItems[i] is NoteImageItem)
-              _buildNoteImageWidget(_noteItems[i] as NoteImageItem, i, question),
+          if (_isDraggingImage) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.touch_app_rounded, size: 14, color: Colors.white70),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Drop into any slot between lines to place image',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _buildDropTargetSlot(
+              onAccept: () => _moveImageToItemIndex(0, question),
+              label: 'DROP AT TOP OF NOTEBOOK',
+            ),
           ],
+          for (int i = 0; i < _noteItems.length; i++) ...[
+            if (_noteItems[i] is NoteTextItem) ...[
+              if (_isDraggingImage)
+                _buildDraggingTextItem(_noteItems[i] as NoteTextItem, question)
+              else
+                _buildNoteTextField(_noteItems[i] as NoteTextItem, question),
+            ] else if (_noteItems[i] is NoteImageItem) ...[
+              _buildNoteImageWidget(_noteItems[i] as NoteImageItem, i, question),
+            ],
+          ],
+          if (_isDraggingImage)
+            _buildDropTargetSlot(
+              onAccept: () => _moveImageToItemIndex(_noteItems.length, question),
+              label: 'DROP AT BOTTOM OF NOTEBOOK',
+            ),
         ],
       ),
     );
@@ -1207,6 +1594,24 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       maxLines: null,
       minLines: 1,
       textInputAction: TextInputAction.newline,
+      contentInsertionConfiguration: ContentInsertionConfiguration(
+        allowedMimeTypes: const <String>['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+        onContentInserted: (KeyboardInsertedContent value) async {
+          if (value.data != null && value.data!.isNotEmpty) {
+            final ext = value.mimeType.contains('png') ? 'png' : 'jpg';
+            final savedPath = await _saveFilePermanently(value.data!, ext);
+            _insertImageItemAtCursorOrEnd(savedPath, question);
+          } else if (value.uri.isNotEmpty) {
+            final bytes = await _readBytesFromNativeUri(value.uri);
+            if (bytes != null && bytes.isNotEmpty) {
+              final savedPath = await _saveFilePermanently(bytes, 'jpg');
+              _insertImageItemAtCursorOrEnd(savedPath, question);
+            }
+          }
+          _unfocusAllNotes();
+          FocusScope.of(context).unfocus();
+        },
+      ),
       onEditingComplete: () {
         item.focusNode.unfocus();
         FocusScope.of(context).unfocus();
@@ -1247,52 +1652,103 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     final isSelected = _selectedImageId == item.id;
     final factor = (item.widthPercent / 100.0).clamp(0.25, 1.0);
 
+    final imageCard = FractionallySizedBox(
+      widthFactor: factor,
+      alignment: Alignment.centerLeft,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? Colors.white : Colors.white24,
+            width: isSelected ? 2.0 : 1.0,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Image.file(
+          io.File(item.imagePath),
+          fit: BoxFit.fitWidth,
+          errorBuilder: (_, __, ___) => Container(
+            height: 120,
+            color: Colors.white10,
+            child: const Center(
+              child: Text('Image file not found', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            ),
+          ),
+        ),
+      ),
+    );
+
     return Container(
       key: ValueKey(item.id),
       margin: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
+          LongPressDraggable<String>(
+            data: item.id,
+            delay: const Duration(milliseconds: 250),
+            onDragStarted: () {
+              HapticFeedback.lightImpact();
               setState(() {
-                _selectedImageId = isSelected ? null : item.id;
+                _isDraggingImage = true;
+                _draggedImageId = item.id;
               });
             },
-            onLongPress: () {
-              _showUniversalImageSheet(
-                context: context,
-                imagePath: item.imagePath,
-                question: question,
-                isFromNotebook: true,
-                noteImageId: item.id,
-              );
+            onDragEnd: (_) {
+              setState(() {
+                _isDraggingImage = false;
+                _draggedImageId = null;
+              });
             },
-            child: FractionallySizedBox(
-              widthFactor: factor,
-              alignment: Alignment.centerLeft,
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isSelected ? Colors.white : Colors.white24,
-                    width: isSelected ? 2.0 : 1.0,
+            onDraggableCanceled: (_, __) {
+              setState(() {
+                _isDraggingImage = false;
+                _draggedImageId = null;
+              });
+            },
+            feedback: Material(
+              color: Colors.transparent,
+              child: Opacity(
+                opacity: 0.85,
+                child: Container(
+                  width: 220,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.5),
+                        blurRadius: 16,
+                        spreadRadius: 4,
+                      ),
+                    ],
                   ),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Image.file(
-                  io.File(item.imagePath),
-                  fit: BoxFit.fitWidth,
-                  errorBuilder: (_, __, ___) => Container(
-                    height: 120,
-                    color: Colors.white10,
-                    child: const Center(
-                      child: Text('Image file not found', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                    ),
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.file(io.File(item.imagePath), fit: BoxFit.fitWidth),
                 ),
               ),
+            ),
+            childWhenDragging: Opacity(
+              opacity: 0.25,
+              child: imageCard,
+            ),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                setState(() {
+                  _selectedImageId = isSelected ? null : item.id;
+                });
+              },
+              onLongPress: () {
+                _showUniversalImageSheet(
+                  context: context,
+                  imagePath: item.imagePath,
+                  question: question,
+                  isFromNotebook: true,
+                  noteImageId: item.id,
+                );
+              },
+              child: imageCard,
             ),
           ),
           if (isSelected)
@@ -1339,6 +1795,65 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           const SizedBox(width: 6),
           Container(width: 1, height: 16, color: Colors.white24),
           const SizedBox(width: 4),
+          Draggable<String>(
+            data: item.id,
+            onDragStarted: () {
+              HapticFeedback.lightImpact();
+              setState(() {
+                _isDraggingImage = true;
+                _draggedImageId = item.id;
+              });
+            },
+            onDragEnd: (_) {
+              setState(() {
+                _isDraggingImage = false;
+                _draggedImageId = null;
+              });
+            },
+            onDraggableCanceled: (_, __) {
+              setState(() {
+                _isDraggingImage = false;
+                _draggedImageId = null;
+              });
+            },
+            feedback: Material(
+              color: Colors.transparent,
+              child: Opacity(
+                opacity: 0.85,
+                child: Container(
+                  width: 220,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.5),
+                        blurRadius: 16,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.file(io.File(item.imagePath), fit: BoxFit.fitWidth),
+                ),
+              ),
+            ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white12,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.drag_indicator_rounded, size: 14, color: Colors.white),
+                  SizedBox(width: 2),
+                  Text('DRAG', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.arrow_upward_rounded, size: 16, color: Colors.white),
             padding: EdgeInsets.zero,
