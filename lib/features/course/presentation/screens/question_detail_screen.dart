@@ -15,8 +15,41 @@ import 'package:pasteboard/pasteboard.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
+
+abstract class NoteItem {
+  final String id;
+  NoteItem(this.id);
+}
+
+class NoteTextItem extends NoteItem {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+
+  NoteTextItem({
+    required String id,
+    required String initialText,
+  })  : controller = TextEditingController(text: initialText),
+        focusNode = FocusNode(),
+        super(id);
+
+  void dispose() {
+    controller.dispose();
+    focusNode.dispose();
+  }
+}
+
+class NoteImageItem extends NoteItem {
+  String imagePath;
+  int widthPercent; // 25, 50, 75, 100
+
+  NoteImageItem({
+    required String id,
+    required this.imagePath,
+    this.widthPercent = 100,
+  }) : super(id);
+}
 
 class QuestionDetailScreen extends ConsumerStatefulWidget {
   final int questionId;
@@ -28,10 +61,10 @@ class QuestionDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
-  final _notesController = TextEditingController();
   final _questionController = TextEditingController();
-  final _notesFocusNode = FocusNode();
   final _questionFocusNode = FocusNode();
+  final List<NoteItem> _noteItems = [];
+  String? _selectedImageId;
   bool _hasInitializedNotes = false;
   bool _hasInitializedQuestion = false;
   bool _isDragging = false;
@@ -42,12 +75,23 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _notesFocusNode.addListener(() {
-      if (mounted) setState(() {});
-    });
     _questionFocusNode.addListener(() {
       if (mounted) setState(() {});
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant QuestionDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.questionId != widget.questionId) {
+      _hasInitializedNotes = false;
+      _hasInitializedQuestion = false;
+      for (final item in _noteItems) {
+        if (item is NoteTextItem) item.dispose();
+      }
+      _noteItems.clear();
+      _selectedImageId = null;
+    }
   }
 
   @override
@@ -55,7 +99,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     if (_debounce?.isActive ?? false) {
       _debounce!.cancel();
       if (_currentQuestion != null) {
-        _saveNotes(_currentQuestion!, text: _notesController.text, silent: true);
+        _saveNotes(_currentQuestion!, silent: true);
       }
     }
     if (_questionDebounce?.isActive ?? false) {
@@ -64,9 +108,12 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         _saveQuestionNotes(_currentQuestion!, text: _questionController.text, silent: true);
       }
     }
-    _notesFocusNode.dispose();
+    for (final item in _noteItems) {
+      if (item is NoteTextItem) {
+        item.dispose();
+      }
+    }
     _questionFocusNode.dispose();
-    _notesController.dispose();
     _questionController.dispose();
     super.dispose();
   }
@@ -140,7 +187,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           
           _currentQuestion = question;
           if (!_hasInitializedNotes) {
-            _notesController.text = question.userNotes ?? '';
+            _initializeNotes(question.userNotes ?? '', question);
             _hasInitializedNotes = true;
           }
 
@@ -208,9 +255,12 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               body: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: () {
-                  _notesFocusNode.unfocus();
+                  _unfocusAllNotes();
                   _questionFocusNode.unfocus();
                   FocusScope.of(context).unfocus();
+                  if (_selectedImageId != null) {
+                    setState(() => _selectedImageId = null);
+                  }
                 },
                 child: CustomScrollView(
                   keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -324,14 +374,17 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (_notesFocusNode.hasFocus)
+                            if (_hasAnyNoteFocus() || _selectedImageId != null)
                               Padding(
                                 padding: const EdgeInsets.only(right: 6),
                                 child: TextButton(
                                   onPressed: () {
-                                    _notesFocusNode.unfocus();
+                                    _unfocusAllNotes();
                                     FocusScope.of(context).unfocus();
-                                    _saveNotes(question, text: _notesController.text);
+                                    if (_selectedImageId != null) {
+                                      setState(() => _selectedImageId = null);
+                                    }
+                                    _saveNotes(question);
                                   },
                                   style: TextButton.styleFrom(
                                     backgroundColor: Colors.white.withOpacity(0.12),
@@ -342,40 +395,16 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                                   child: const Text('DONE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
                                 ),
                               ),
+                            IconButton(
+                              onPressed: () => _pickImageIntoNotebook(question),
+                              icon: const Icon(Icons.add_photo_alternate_outlined, size: 18, color: Colors.white),
+                              tooltip: 'Insert Image',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
+                            ),
+                            const SizedBox(width: 4),
                             TextButton.icon(
-                              onPressed: () async {
-                                final data = await Clipboard.getData(Clipboard.kTextPlain);
-                                if (data != null && data.text != null && data.text!.isNotEmpty) {
-                                  setState(() {
-                                    _notesController.text = data.text!;
-                                  });
-                                  _saveNotes(question, text: data.text!);
-                                  // Immediately exit editing mode and dismiss keyboard/blinker
-                                  _notesFocusNode.unfocus();
-                                  FocusScope.of(context).unfocus();
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Pasted and saved to Notebook!'),
-                                        backgroundColor: Colors.white24,
-                                        duration: Duration(seconds: 2),
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
-                                  }
-                                } else {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Clipboard is empty!'),
-                                        backgroundColor: Colors.orange,
-                                        duration: Duration(seconds: 2),
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
+                              onPressed: () => _pasteIntoNotebook(question),
                               icon: const Icon(Icons.content_paste_rounded, size: 13, color: Colors.white),
                               label: const Text('PASTE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
                               style: TextButton.styleFrom(
@@ -400,59 +429,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                           ],
                         ),
                         padding: const EdgeInsets.all(16),
-                        child: TextField(
-                          controller: _notesController,
-                          focusNode: _notesFocusNode,
-                          maxLines: null,
-                          minLines: 1,
-                          textInputAction: TextInputAction.done,
-                          onEditingComplete: () {
-                            _notesFocusNode.unfocus();
-                            FocusScope.of(context).unfocus();
-                            _saveNotes(question, text: _notesController.text);
-                          },
-                          contextMenuBuilder: (context, editableTextState) {
-                            final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
-                            final int pasteIndex = buttonItems.indexWhere((item) => item.type == ContextMenuButtonType.paste);
-                            if (pasteIndex != -1) {
-                              final originalPaste = buttonItems[pasteIndex].onPressed;
-                              buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
-                                onPressed: () {
-                                  if (originalPaste != null) originalPaste();
-                                  Future.microtask(() {
-                                    _notesFocusNode.unfocus();
-                                    FocusScope.of(context).unfocus();
-                                    _saveNotes(question, text: _notesController.text);
-                                  });
-                                },
-                              );
-                            }
-                            return AdaptiveTextSelectionToolbar.buttonItems(
-                              anchors: editableTextState.contextMenuAnchors,
-                              buttonItems: buttonItems,
-                            );
-                          },
-                          style: GoogleFonts.inter(
-                            fontSize: 15, 
-                            fontWeight: FontWeight.w400, 
-                            color: AppTheme.textPrimary, 
-                            height: 1.6,
-                          ),
-                          onChanged: (val) {
-                            if (_debounce?.isActive ?? false) _debounce!.cancel();
-                            _debounce = Timer(const Duration(milliseconds: 300), () {
-                              _saveNotes(question, text: val, silent: true);
-                            });
-                          },
-                          decoration: InputDecoration(
-                            hintText: 'Paste or type your notes here...',
-                            hintStyle: const TextStyle(color: Colors.white38),
-                            filled: true,
-                            fillColor: AppTheme.black.withOpacity(0.4),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                            contentPadding: const EdgeInsets.all(12),
-                          ),
-                        ),
+                        child: _buildNotebookContent(question),
                       ),
 
                       const SizedBox(height: 16),
@@ -585,30 +562,39 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   Widget _buildAssetTile(Question question, String path, int index) {
     return Stack(
       children: [
-        Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
+        GestureDetector(
+          onTap: () => _openFullscreenImage(context, path),
+          onLongPress: () => _showUniversalImageSheet(
+            context: context,
+            imagePath: path,
+            question: question,
+            isFromNotebook: false,
           ),
-          clipBehavior: Clip.antiAlias,
-          child: Image.file(
-            io.File(path), 
-            fit: BoxFit.fitWidth,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                height: 200, 
-                color: AppTheme.selectedTile, 
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.broken_image_outlined, size: 32, color: Colors.white54),
-                    SizedBox(height: 8),
-                    Text('Image not found on this device', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                  ],
-                ),
-              );
-            },
+          child: Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withOpacity(0.05)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Image.file(
+              io.File(path), 
+              fit: BoxFit.fitWidth,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  height: 200, 
+                  color: AppTheme.selectedTile, 
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.broken_image_outlined, size: 32, color: Colors.white54),
+                      SizedBox(height: 8),
+                      Text('Image not found on this device', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         ),
         Positioned(
@@ -743,26 +729,1009 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     );
   }
 
-  Color _getStatusThumbColor(QuestionStatus status) {
-    switch (status) {
-      case QuestionStatus.completed:
-        return AppTheme.completedColor.withOpacity(0.25);
-      case QuestionStatus.revisionNeeded:
-        return AppTheme.inProgressColor.withOpacity(0.25);
-      case QuestionStatus.incomplete:
-      default:
-        return Colors.white.withOpacity(0.2);
-    }
-  }
-
   void _updateStatus(QuestionStatus status) async {
     final repo = await ref.read(questionRepositoryProvider.future);
     await repo.updateStatus(widget.questionId, status);
     HapticFeedback.mediumImpact();
   }
 
+  void _initializeNotes(String rawNotes, Question question) {
+    for (final item in _noteItems) {
+      if (item is NoteTextItem) item.dispose();
+    }
+    _noteItems.clear();
+
+    final matches = RegExp(r'<<IMG:(\d+):(.*?)>>').allMatches(rawNotes);
+    int lastEnd = 0;
+
+    for (final match in matches) {
+      if (match.start > lastEnd) {
+        final textPart = rawNotes.substring(lastEnd, match.start);
+        _createAndAddTextItem(textPart, question);
+      }
+      final width = int.tryParse(match.group(1) ?? '100') ?? 100;
+      final path = match.group(2) ?? '';
+      _noteItems.add(NoteImageItem(
+        id: const Uuid().v4(),
+        imagePath: path,
+        widthPercent: width,
+      ));
+      lastEnd = match.end;
+    }
+
+    if (lastEnd < rawNotes.length) {
+      _createAndAddTextItem(rawNotes.substring(lastEnd), question);
+    }
+
+    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+      _createAndAddTextItem('', question);
+    }
+  }
+
+  NoteTextItem _createAndAddTextItem(String text, Question question) {
+    final item = NoteTextItem(
+      id: const Uuid().v4(),
+      initialText: text,
+    );
+    item.focusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
+    item.controller.addListener(() {
+      if (_debounce?.isActive ?? false) _debounce!.cancel();
+      _debounce = Timer(const Duration(milliseconds: 300), () {
+        if (_currentQuestion != null) {
+          _saveNotes(_currentQuestion!, silent: true);
+        }
+      });
+    });
+    _noteItems.add(item);
+    return item;
+  }
+
+  String _serializeNotes() {
+    final sb = StringBuffer();
+    for (final item in _noteItems) {
+      if (item is NoteTextItem) {
+        sb.write(item.controller.text);
+      } else if (item is NoteImageItem) {
+        sb.write('<<IMG:${item.widthPercent}:${item.imagePath}>>');
+      }
+    }
+    return sb.toString();
+  }
+
+  bool _hasAnyNoteFocus() {
+    for (final item in _noteItems) {
+      if (item is NoteTextItem && item.focusNode.hasFocus) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _unfocusAllNotes() {
+    for (final item in _noteItems) {
+      if (item is NoteTextItem) {
+        item.focusNode.unfocus();
+      }
+    }
+  }
+
+  Future<void> _pasteIntoNotebook(Question question) async {
+    // 1. Try pasting raw image bytes from Pasteboard
+    try {
+      final imageBytes = await Pasteboard.image;
+      if (imageBytes != null && imageBytes.isNotEmpty) {
+        final savedPath = await _saveFilePermanently(imageBytes, 'jpg');
+        _insertImageItemAtCursorOrEnd(savedPath, question);
+        _unfocusAllNotes();
+        FocusScope.of(context).unfocus();
+        setState(() => _selectedImageId = null);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image pasted into Notebook!'),
+              backgroundColor: Colors.white24,
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+    } catch (e) {
+      debugPrint('Pasteboard image check failed: $e');
+    }
+
+    // 2. Try pasting image files from Pasteboard
+    try {
+      final files = await Pasteboard.files();
+      if (files.isNotEmpty) {
+        for (final p in files) {
+          final lower = p.toLowerCase();
+          if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
+            final bytes = await io.File(p).readAsBytes();
+            final savedPath = await _saveFilePermanently(bytes, 'jpg');
+            _insertImageItemAtCursorOrEnd(savedPath, question);
+            _unfocusAllNotes();
+            FocusScope.of(context).unfocus();
+            setState(() => _selectedImageId = null);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Image pasted into Notebook!'),
+                  backgroundColor: Colors.white24,
+                  duration: Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Pasteboard file check failed: $e');
+    }
+
+    // 3. Fallback to text from clipboard
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data != null && data.text != null && data.text!.isNotEmpty) {
+      _insertTextItemAtCursorOrEnd(data.text!, question);
+      _unfocusAllNotes();
+      FocusScope.of(context).unfocus();
+      setState(() => _selectedImageId = null);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pasted and saved to Notebook!'),
+            backgroundColor: Colors.white24,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Clipboard is empty!'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickImageIntoNotebook(Question question) async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      final savedPath = await _saveFilePermanently(bytes, 'jpg');
+      _insertImageItemAtCursorOrEnd(savedPath, question);
+      _unfocusAllNotes();
+      FocusScope.of(context).unfocus();
+      setState(() => _selectedImageId = null);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Image added to Notebook!'),
+            backgroundColor: Colors.white24,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _insertImageItemAtCursorOrEnd(String imagePath, Question question) {
+    int focusedIndex = -1;
+    NoteTextItem? focusedTextItem;
+    for (int i = 0; i < _noteItems.length; i++) {
+      final it = _noteItems[i];
+      if (it is NoteTextItem && it.focusNode.hasFocus) {
+        focusedIndex = i;
+        focusedTextItem = it;
+        break;
+      }
+    }
+
+    final newImageItem = NoteImageItem(
+      id: const Uuid().v4(),
+      imagePath: imagePath,
+      widthPercent: 100,
+    );
+
+    if (focusedTextItem != null && focusedIndex != -1) {
+      final text = focusedTextItem.controller.text;
+      int offset = focusedTextItem.controller.selection.baseOffset;
+      if (offset < 0 || offset > text.length) {
+        offset = text.length;
+      }
+
+      int lineEnd = text.indexOf('\n', offset);
+      if (lineEnd == -1) {
+        lineEnd = text.length;
+      } else {
+        lineEnd += 1;
+      }
+
+      final textBefore = text.substring(0, lineEnd);
+      final textAfter = text.substring(lineEnd);
+
+      focusedTextItem.controller.text = textBefore;
+
+      final afterTextItem = NoteTextItem(
+        id: const Uuid().v4(),
+        initialText: textAfter,
+      );
+      afterTextItem.focusNode.addListener(() { if (mounted) setState(() {}); });
+      afterTextItem.controller.addListener(() {
+        if (_debounce?.isActive ?? false) _debounce!.cancel();
+        _debounce = Timer(const Duration(milliseconds: 300), () {
+          if (_currentQuestion != null) _saveNotes(_currentQuestion!, silent: true);
+        });
+      });
+
+      _noteItems.insert(focusedIndex + 1, newImageItem);
+      _noteItems.insert(focusedIndex + 2, afterTextItem);
+    } else {
+      _noteItems.add(newImageItem);
+      final afterTextItem = NoteTextItem(
+        id: const Uuid().v4(),
+        initialText: '',
+      );
+      afterTextItem.focusNode.addListener(() { if (mounted) setState(() {}); });
+      afterTextItem.controller.addListener(() {
+        if (_debounce?.isActive ?? false) _debounce!.cancel();
+        _debounce = Timer(const Duration(milliseconds: 300), () {
+          if (_currentQuestion != null) _saveNotes(_currentQuestion!, silent: true);
+        });
+      });
+      _noteItems.add(afterTextItem);
+    }
+
+    _consolidateAdjacentTextItems();
+    _saveNotes(question, text: _serializeNotes());
+    setState(() {});
+  }
+
+  void _insertTextItemAtCursorOrEnd(String textToInsert, Question question) {
+    NoteTextItem? focusedTextItem;
+    for (int i = 0; i < _noteItems.length; i++) {
+      final it = _noteItems[i];
+      if (it is NoteTextItem && it.focusNode.hasFocus) {
+        focusedTextItem = it;
+        break;
+      }
+    }
+
+    if (focusedTextItem != null) {
+      final cur = focusedTextItem.controller.text;
+      final sel = focusedTextItem.controller.selection;
+      if (sel.isValid && sel.baseOffset >= 0) {
+        final newText = cur.replaceRange(sel.start, sel.end, textToInsert);
+        focusedTextItem.controller.text = newText;
+      } else {
+        focusedTextItem.controller.text = cur + textToInsert;
+      }
+    } else {
+      if (_noteItems.isNotEmpty && _noteItems.last is NoteTextItem) {
+        final last = _noteItems.last as NoteTextItem;
+        if (last.controller.text.isEmpty) {
+          last.controller.text = textToInsert;
+        } else {
+          last.controller.text = '${last.controller.text}\n$textToInsert';
+        }
+      } else {
+        final item = NoteTextItem(id: const Uuid().v4(), initialText: textToInsert);
+        item.focusNode.addListener(() { if (mounted) setState(() {}); });
+        item.controller.addListener(() {
+          if (_debounce?.isActive ?? false) _debounce!.cancel();
+          _debounce = Timer(const Duration(milliseconds: 300), () {
+            if (_currentQuestion != null) _saveNotes(_currentQuestion!, silent: true);
+          });
+        });
+        _noteItems.add(item);
+      }
+    }
+
+    _saveNotes(question, text: _serializeNotes());
+    setState(() {});
+  }
+
+  void _updateNoteImageWidth(String noteImageId, int widthPercent, Question question) {
+    for (final it in _noteItems) {
+      if (it is NoteImageItem && it.id == noteImageId) {
+        it.widthPercent = widthPercent;
+        break;
+      }
+    }
+    _saveNotes(question, text: _serializeNotes());
+    setState(() {});
+  }
+
+  void _moveImageUp(int imageIndex, Question question) {
+    if (imageIndex <= 0) return;
+
+    final prevItem = _noteItems[imageIndex - 1];
+    if (prevItem is NoteImageItem) {
+      final img = _noteItems.removeAt(imageIndex);
+      _noteItems.insert(imageIndex - 1, img);
+    } else if (prevItem is NoteTextItem) {
+      final text = prevItem.controller.text;
+      final lines = text.split('\n');
+      if (lines.length > 1) {
+        String lineToMove = lines.removeLast();
+        if (lineToMove.isEmpty && lines.isNotEmpty) {
+          lineToMove = lines.removeLast();
+        }
+        prevItem.controller.text = lines.join('\n');
+
+        if (imageIndex + 1 < _noteItems.length && _noteItems[imageIndex + 1] is NoteTextItem) {
+          final nextText = _noteItems[imageIndex + 1] as NoteTextItem;
+          final cur = nextText.controller.text;
+          nextText.controller.text = cur.isEmpty ? lineToMove : '$lineToMove\n$cur';
+        } else {
+          final newItem = NoteTextItem(id: const Uuid().v4(), initialText: lineToMove);
+          newItem.focusNode.addListener(() { if (mounted) setState(() {}); });
+          newItem.controller.addListener(() {
+            if (_debounce?.isActive ?? false) _debounce!.cancel();
+            _debounce = Timer(const Duration(milliseconds: 300), () {
+              if (_currentQuestion != null) _saveNotes(_currentQuestion!, silent: true);
+            });
+          });
+          _noteItems.insert(imageIndex + 1, newItem);
+        }
+      } else {
+        final img = _noteItems.removeAt(imageIndex);
+        _noteItems.insert(imageIndex - 1, img);
+      }
+    }
+
+    _consolidateAdjacentTextItems();
+    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+      _createAndAddTextItem('', question);
+    }
+    _saveNotes(question, text: _serializeNotes());
+    setState(() {});
+  }
+
+  void _moveImageDown(int imageIndex, Question question) {
+    if (imageIndex >= _noteItems.length - 1) return;
+
+    final nextItem = _noteItems[imageIndex + 1];
+    if (nextItem is NoteImageItem) {
+      final img = _noteItems.removeAt(imageIndex);
+      _noteItems.insert(imageIndex + 1, img);
+    } else if (nextItem is NoteTextItem) {
+      final text = nextItem.controller.text;
+      final lines = text.split('\n');
+      if (lines.length > 1) {
+        String lineToMove = lines.removeAt(0);
+        nextItem.controller.text = lines.join('\n');
+
+        if (imageIndex - 1 >= 0 && _noteItems[imageIndex - 1] is NoteTextItem) {
+          final prevText = _noteItems[imageIndex - 1] as NoteTextItem;
+          final cur = prevText.controller.text;
+          prevText.controller.text = cur.isEmpty ? lineToMove : '$cur\n$lineToMove';
+        } else {
+          final newItem = NoteTextItem(id: const Uuid().v4(), initialText: lineToMove);
+          newItem.focusNode.addListener(() { if (mounted) setState(() {}); });
+          newItem.controller.addListener(() {
+            if (_debounce?.isActive ?? false) _debounce!.cancel();
+            _debounce = Timer(const Duration(milliseconds: 300), () {
+              if (_currentQuestion != null) _saveNotes(_currentQuestion!, silent: true);
+            });
+          });
+          _noteItems.insert(imageIndex, newItem);
+        }
+      } else {
+        final img = _noteItems.removeAt(imageIndex);
+        _noteItems.insert(imageIndex + 1, img);
+      }
+    }
+
+    _consolidateAdjacentTextItems();
+    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+      _createAndAddTextItem('', question);
+    }
+    _saveNotes(question, text: _serializeNotes());
+    setState(() {});
+  }
+
+  void _consolidateAdjacentTextItems() {
+    for (int i = 0; i < _noteItems.length - 1; i++) {
+      if (_noteItems[i] is NoteTextItem && _noteItems[i + 1] is NoteTextItem) {
+        final a = _noteItems[i] as NoteTextItem;
+        final b = _noteItems[i + 1] as NoteTextItem;
+        final sep = (a.controller.text.isNotEmpty && b.controller.text.isNotEmpty && !a.controller.text.endsWith('\n')) ? '\n' : '';
+        a.controller.text = a.controller.text + sep + b.controller.text;
+        b.dispose();
+        _noteItems.removeAt(i + 1);
+        i--;
+      }
+    }
+  }
+
+  void _deleteImageFromNote(String noteImageId, Question question) {
+    final index = _noteItems.indexWhere((it) => it.id == noteImageId);
+    if (index == -1) return;
+
+    _noteItems.removeAt(index);
+    _consolidateAdjacentTextItems();
+
+    if (_selectedImageId == noteImageId) {
+      _selectedImageId = null;
+    }
+
+    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+      _createAndAddTextItem('', question);
+    }
+
+    _saveNotes(question, text: _serializeNotes());
+    setState(() {});
+  }
+
+  Widget _buildNotebookContent(Question question) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.black.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < _noteItems.length; i++) ...[
+            if (_noteItems[i] is NoteTextItem)
+              _buildNoteTextField(_noteItems[i] as NoteTextItem, question)
+            else if (_noteItems[i] is NoteImageItem)
+              _buildNoteImageWidget(_noteItems[i] as NoteImageItem, i, question),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoteTextField(NoteTextItem item, Question question) {
+    return TextField(
+      key: ValueKey(item.id),
+      controller: item.controller,
+      focusNode: item.focusNode,
+      maxLines: null,
+      minLines: 1,
+      textInputAction: TextInputAction.newline,
+      onEditingComplete: () {
+        item.focusNode.unfocus();
+        FocusScope.of(context).unfocus();
+        _saveNotes(question, text: _serializeNotes());
+      },
+      contextMenuBuilder: (context, editableTextState) {
+        final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
+        final int pasteIndex = buttonItems.indexWhere((b) => b.type == ContextMenuButtonType.paste);
+        if (pasteIndex != -1) {
+          buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
+            onPressed: () {
+              _pasteIntoNotebook(question);
+            },
+          );
+        }
+        return AdaptiveTextSelectionToolbar.buttonItems(
+          anchors: editableTextState.contextMenuAnchors,
+          buttonItems: buttonItems,
+        );
+      },
+      style: GoogleFonts.inter(
+        fontSize: 15,
+        fontWeight: FontWeight.w400,
+        color: AppTheme.textPrimary,
+        height: 1.6,
+      ),
+      decoration: InputDecoration(
+        hintText: _noteItems.length <= 1 ? 'Paste or type your notes here...' : 'Continue notes here...',
+        hintStyle: const TextStyle(color: Colors.white38),
+        border: InputBorder.none,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 4),
+      ),
+    );
+  }
+
+  Widget _buildNoteImageWidget(NoteImageItem item, int index, Question question) {
+    final isSelected = _selectedImageId == item.id;
+    final factor = (item.widthPercent / 100.0).clamp(0.25, 1.0);
+
+    return Container(
+      key: ValueKey(item.id),
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              setState(() {
+                _selectedImageId = isSelected ? null : item.id;
+              });
+            },
+            onLongPress: () {
+              _showUniversalImageSheet(
+                context: context,
+                imagePath: item.imagePath,
+                question: question,
+                isFromNotebook: true,
+                noteImageId: item.id,
+              );
+            },
+            child: FractionallySizedBox(
+              widthFactor: factor,
+              alignment: Alignment.centerLeft,
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isSelected ? Colors.white : Colors.white24,
+                    width: isSelected ? 2.0 : 1.0,
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Image.file(
+                  io.File(item.imagePath),
+                  fit: BoxFit.fitWidth,
+                  errorBuilder: (_, __, ___) => Container(
+                    height: 120,
+                    color: Colors.white10,
+                    child: const Center(
+                      child: Text('Image file not found', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (isSelected)
+            _buildInlineImageControls(item, index, question),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInlineImageControls(NoteImageItem item, int index, Question question) {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white24, width: 1.0),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ...([25, 50, 75, 100].map((pct) {
+            final isCur = item.widthPercent == pct;
+            return GestureDetector(
+              onTap: () => _updateNoteImageWidth(item.id, pct, question),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isCur ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$pct%',
+                  style: TextStyle(
+                    color: isCur ? Colors.black : Colors.white70,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            );
+          })),
+          const SizedBox(width: 6),
+          Container(width: 1, height: 16, color: Colors.white24),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.arrow_upward_rounded, size: 16, color: Colors.white),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            tooltip: 'Move Up',
+            onPressed: () => _moveImageUp(index, question),
+          ),
+          IconButton(
+            icon: const Icon(Icons.arrow_downward_rounded, size: 16, color: Colors.white),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            tooltip: 'Move Down',
+            onPressed: () => _moveImageDown(index, question),
+          ),
+          IconButton(
+            icon: const Icon(Icons.share_outlined, size: 16, color: Colors.white70),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            tooltip: 'Share',
+            onPressed: () => _showUniversalImageSheet(
+              context: context,
+              imagePath: item.imagePath,
+              question: question,
+              isFromNotebook: true,
+              noteImageId: item.id,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 16, color: Colors.redAccent),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            tooltip: 'Remove',
+            onPressed: () => _deleteImageFromNote(item.id, question),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUniversalImageSheet({
+    required BuildContext context,
+    required String imagePath,
+    required Question question,
+    required bool isFromNotebook,
+    String? noteImageId,
+  }) {
+    HapticFeedback.mediumImpact();
+
+    int currentPercent = 100;
+    if (isFromNotebook && noteImageId != null) {
+      for (final it in _noteItems) {
+        if (it is NoteImageItem && it.id == noteImageId) {
+          currentPercent = it.widthPercent;
+          break;
+        }
+      }
+    }
+
+    final fileName = io.File(imagePath).uri.pathSegments.last;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFF1C1C1E),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.file(
+                            io.File(imagePath),
+                            width: 50,
+                            height: 50,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 50,
+                              height: 50,
+                              color: Colors.white10,
+                              child: const Icon(Icons.broken_image, color: Colors.white38, size: 24),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                fileName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                isFromNotebook ? 'Notebook Image' : 'Answer Resource',
+                                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white54, size: 20),
+                          onPressed: () => Navigator.pop(sheetContext),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(color: Colors.white12, height: 1),
+                    const SizedBox(height: 8),
+
+                    // 1. Share Image (WhatsApp, Telegram, etc.)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.samsungBlue.withOpacity(0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.share_rounded, color: AppTheme.samsungBlue, size: 20),
+                      ),
+                      title: const Text(
+                        'Share Image',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+                      ),
+                      subtitle: const Text(
+                        'Share to WhatsApp, Telegram, and other apps',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      onTap: () async {
+                        Navigator.pop(sheetContext);
+                        try {
+                          await Share.shareXFiles(
+                            [XFile(imagePath)],
+                            text: question.title,
+                          );
+                        } catch (e) {
+                          debugPrint('Share failed: $e');
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Failed to share: $e'), backgroundColor: Colors.redAccent),
+                            );
+                          }
+                        }
+                      },
+                    ),
+
+                    // 2. View Fullscreen
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.08),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.fullscreen_rounded, color: Colors.white, size: 20),
+                      ),
+                      title: const Text(
+                        'View Fullscreen',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+                      ),
+                      subtitle: const Text(
+                        'Pinch to zoom and inspect details',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        _openFullscreenImage(context, imagePath);
+                      },
+                    ),
+
+                    // 3. Copy Image
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.08),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.copy_rounded, color: Colors.white, size: 20),
+                      ),
+                      title: const Text(
+                        'Copy Image',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+                      ),
+                      subtitle: const Text(
+                        'Copy image file to clipboard',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      onTap: () async {
+                        Navigator.pop(sheetContext);
+                        try {
+                          await Pasteboard.writeFiles([imagePath]);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Image copied to clipboard!'),
+                                backgroundColor: Colors.white24,
+                                duration: Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          debugPrint('Copy failed: $e');
+                        }
+                      },
+                    ),
+
+                    // 4. Notebook Sizing Percentile
+                    if (isFromNotebook && noteImageId != null) ...[
+                      const SizedBox(height: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'IMAGE SIZE (PERCENTILE)',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 11,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [25, 50, 75, 100].map((pct) {
+                              final isCur = currentPercent == pct;
+                              return Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  child: InkWell(
+                                    onTap: () {
+                                      setSheetState(() => currentPercent = pct);
+                                      _updateNoteImageWidth(noteImageId, pct, question);
+                                    },
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: isCur ? Colors.white : Colors.white.withOpacity(0.06),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: isCur ? Colors.white : Colors.white24,
+                                          width: 1.0,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '$pct%',
+                                          style: TextStyle(
+                                            color: isCur ? Colors.black : Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    const SizedBox(height: 8),
+
+                    // 5. Delete
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.urgentColor.withOpacity(0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.delete_outline_rounded, color: AppTheme.urgentColor, size: 20),
+                      ),
+                      title: const Text(
+                        'Delete Image',
+                        style: TextStyle(color: AppTheme.urgentColor, fontWeight: FontWeight.w700, fontSize: 15),
+                      ),
+                      subtitle: Text(
+                        isFromNotebook ? 'Remove this image from notebook' : 'Delete attachment from resources',
+                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        if (isFromNotebook && noteImageId != null) {
+                          _deleteImageFromNote(noteImageId, question);
+                        } else {
+                          final images = question.images ?? [];
+                          final idx = images.indexOf(imagePath);
+                          if (idx != -1) {
+                            _removeAttachment(question, idx);
+                          }
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _openFullscreenImage(BuildContext context, String path) {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        opaque: false,
+        barrierColor: Colors.black.withOpacity(0.92),
+        pageBuilder: (context, anim1, anim2) {
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              children: [
+                Center(
+                  child: InteractiveViewer(
+                    minScale: 0.8,
+                    maxScale: 5.0,
+                    child: Image.file(
+                      io.File(path),
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Center(
+                        child: Text('Image file not found', style: TextStyle(color: Colors.white70)),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 50,
+                  right: 20,
+                  child: SafeArea(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: const Icon(Icons.close, color: Colors.white, size: 22),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _saveNotes(Question question, {String? text, bool silent = false}) async {
-    final textToSave = text ?? _notesController.text;
+    final textToSave = text ?? _serializeNotes();
     final repo = await ref.read(questionRepositoryProvider.future);
     await repo.isar.writeTxn(() async {
       question.userNotes = textToSave;
