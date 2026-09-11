@@ -7,7 +7,7 @@ import '../../domain/models/question.dart';
 import '../../domain/models/course.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:desktop_drop/desktop_drop.dart';
+import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 import 'dart:io' as io;
 import 'dart:async';
 import 'dart:convert';
@@ -64,17 +64,31 @@ class QuestionDetailScreen extends ConsumerStatefulWidget {
 class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   final _questionController = TextEditingController();
   final _questionFocusNode = FocusNode();
+  final _scrollController = ScrollController();
+  final GlobalKey _notebookKey = GlobalKey();
+  final GlobalKey _resourcesKey = GlobalKey();
   final List<NoteItem> _noteItems = [];
   String? _selectedImageId;
   bool _isDraggingImage = false;
   String? _draggedImageId;
+  String? _draggedAssetPath;
   bool _hasInitializedNotes = false;
   bool _hasInitializedQuestion = false;
-  bool _isDragging = false;
+  bool _isDraggingResources = false;
+  bool _isDraggingNotebook = false;
   Timer? _debounce;
   Timer? _questionDebounce;
   Question? _currentQuestion;
   static const _platformChannel = MethodChannel('com.examcommandcenter.direct_share');
+
+  String? _hoveredTextItemId;
+  int? _hoveredCharIndex;
+  Offset? _hoveredCaretOffset;
+  final Map<String, GlobalKey> _textItemKeys = {};
+
+  GlobalKey _getTextItemKey(String id) {
+    return _textItemKeys.putIfAbsent(id, () => GlobalKey());
+  }
 
   @override
   void initState() {
@@ -100,6 +114,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
 
   @override
   void dispose() {
+    _platformChannel.setMethodCallHandler(null);
+    _scrollController.dispose();
     if (_debounce?.isActive ?? false) {
       _debounce!.cancel();
       if (_currentQuestion != null) {
@@ -211,65 +227,36 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             _hasInitializedQuestion = true;
           }
 
-          return DropTarget(
-            onDragDone: (detail) async {
-              setState(() => _isDragging = false);
-              if (detail.files.isEmpty) return;
-              
-              final orderedFiles = io.Platform.isWindows ? detail.files.reversed.toList() : detail.files.toList();
-              
-              final docsDir = await getApplicationDocumentsDirectory();
-              final newPaths = <String>[];
-              
-              for (final file in orderedFiles) {
-                try {
-                  String ext = 'jpg';
-                  final lowerPath = file.path.toLowerCase();
-                  if (lowerPath.endsWith('.png')) ext = 'png';
-                  else if (lowerPath.endsWith('.webp')) ext = 'webp';
-                  
-                  final fileName = '${const Uuid().v4()}.$ext';
-                  final destPath = '${docsDir.path}/$fileName';
-                  
-                  await file.saveTo(destPath);
-                  newPaths.add(destPath);
-                } catch (e) {
-                  debugPrint('Failed to save dropped file: $e');
-                }
-              }
-              
-              if (newPaths.isEmpty) return;
-
-              final repo = await ref.read(questionRepositoryProvider.future);
-              await repo.isar.writeTxn(() async {
-                final q = await repo.isar.questions.get(widget.questionId);
-                if (q != null) {
-                  final images = List<String>.from(q.images ?? []);
-                  images.addAll(newPaths);
-                  q.images = images;
-                  await repo.isar.collection<Question>().put(q);
-                }
-              });
-              HapticFeedback.vibrate();
-            },
-            onDragEntered: (detail) => setState(() => _isDragging = true),
-            onDragExited: (detail) => setState(() => _isDragging = false),
-            child: Scaffold(
+          return Scaffold(
               backgroundColor: AppTheme.black,
-              body: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () {
-                  _unfocusAllNotes();
-                  _questionFocusNode.unfocus();
-                  FocusScope.of(context).unfocus();
-                  if (_selectedImageId != null) {
-                    setState(() => _selectedImageId = null);
+              body: Listener(
+                onPointerMove: (pointerEvent) {
+                  if (_isDraggingImage) {
+                    _updateLetterCaretFromPointer(pointerEvent.position);
+                    final screenHeight = MediaQuery.of(context).size.height;
+                    final dy = pointerEvent.position.dy;
+                    if (dy < 180 && _scrollController.hasClients && _scrollController.offset > 0) {
+                      _scrollController.jumpTo((_scrollController.offset - 14).clamp(0.0, _scrollController.position.maxScrollExtent));
+                    } else if (dy > screenHeight - 180 && _scrollController.hasClients && _scrollController.offset < _scrollController.position.maxScrollExtent) {
+                      _scrollController.jumpTo((_scrollController.offset + 14).clamp(0.0, _scrollController.position.maxScrollExtent));
+                    }
                   }
                 },
-                child: CustomScrollView(
-                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                  physics: const BouncingScrollPhysics(),
-                  slivers: [
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    _unfocusAllNotes();
+                    _questionFocusNode.unfocus();
+                    FocusScope.of(context).unfocus();
+                    if (_selectedImageId != null) {
+                      setState(() => _selectedImageId = null);
+                    }
+                  },
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    physics: const BouncingScrollPhysics(),
+                    slivers: [
                 // ONE UI DYNAMIC HEADER
                 SliverToBoxAdapter(
                   child: Padding(
@@ -439,8 +426,70 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                       const SizedBox(height: 16),
 
                       // 5. ANSWER RESOURCES (ATTACHMENTS)
-                      DragTarget<Object>(
-                        onWillAcceptWithDetails: (details) => true,
+                      DropRegion(
+                        formats: Formats.standardFormats,
+                        onDropOver: (event) {
+                          if (!_isDraggingResources && mounted) {
+                            setState(() => _isDraggingResources = true);
+                          }
+                          return DropOperation.copy;
+                        },
+                        onDropLeave: (event) {
+                          if (_isDraggingResources && mounted) {
+                            setState(() => _isDraggingResources = false);
+                          }
+                        },
+                        onPerformDrop: (event) async {
+                          if (mounted) setState(() => _isDraggingResources = false);
+                          HapticFeedback.mediumImpact();
+                          final docsDir = await getApplicationDocumentsDirectory();
+                          for (final item in event.session.items) {
+                            final reader = item.dataReader;
+                            if (reader != null) {
+                              reader.getFile(null, (file) async {
+                                try {
+                                  final bytes = await file.readAll();
+                                  if (bytes.isNotEmpty) {
+                                    String ext = 'jpg';
+                                    final lowerName = (file.fileName ?? '').toLowerCase();
+                                    if (lowerName.endsWith('.png')) {
+                                      ext = 'png';
+                                    } else if (lowerName.endsWith('.webp')) {
+                                      ext = 'webp';
+                                    } else if (lowerName.endsWith('.jpeg')) {
+                                      ext = 'jpeg';
+                                    }
+                                    final destPath = '${docsDir.path}/${const Uuid().v4()}.$ext';
+                                    await io.File(destPath).writeAsBytes(bytes);
+
+                                    final repo = await ref.read(questionRepositoryProvider.future);
+                                    await repo.isar.writeTxn(() async {
+                                      final q = await repo.isar.questions.get(question.id);
+                                      if (q != null) {
+                                        final images = List<String>.from(q.images ?? []);
+                                        if (!images.contains(destPath)) {
+                                          images.add(destPath);
+                                          q.images = images;
+                                          await repo.isar.collection<Question>().put(q);
+                                        }
+                                      }
+                                    });
+                                    if (mounted) setState(() {});
+                                  }
+                                } catch (e) {
+                                  debugPrint('Failed to save dropped file from super_drag_and_drop: $e');
+                                }
+                              });
+                            }
+                          }
+                        },
+                        child: DragTarget<Object>(
+                        key: _resourcesKey,
+                        onWillAcceptWithDetails: (details) {
+                          // Ignore when dragging an image that is already an Answer Resource asset
+                          if (_draggedAssetPath != null) return false;
+                          return true;
+                        },
                         onAcceptWithDetails: (details) async {
                           HapticFeedback.mediumImpact();
                           final data = details.data;
@@ -471,16 +520,6 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                                 }
                               }
                             });
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Image added to Answer Resources!'),
-                                  backgroundColor: Colors.white24,
-                                  duration: Duration(seconds: 2),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
                             setState(() {});
                           }
                         },
@@ -566,11 +605,11 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                                   ),
                                 ),
                               ),
-                              if (isHovered || _isDragging)
+                              if (isHovered || _isDraggingResources)
                                 Positioned.fill(
                                   child: Container(
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF1E1E1E).withOpacity(0.92),
+                                      color: const Color(0xFF1E1E1E).withValues(alpha: 0.92),
                                       borderRadius: BorderRadius.circular(AppTheme.cardRadius),
                                       border: Border.all(color: Colors.white, width: 2),
                                     ),
@@ -590,6 +629,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                           );
                         },
                       ),
+                      ),
 
                       const SizedBox(height: 150),
                     ]),
@@ -598,8 +638,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               ],
             ),
             ),
-          ),
-        );
+            ),
+          );
         },
       ),
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -664,58 +704,58 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       children: [
         LongPressDraggable<String>(
           data: path,
-          delay: const Duration(milliseconds: 250),
+          delay: const Duration(milliseconds: 150),
           onDragStarted: () {
             HapticFeedback.lightImpact();
             setState(() {
               _isDraggingImage = true;
+              _draggedImageId = null;
+              _draggedAssetPath = path;
             });
           },
           onDragEnd: (_) {
             setState(() {
               _isDraggingImage = false;
+              _draggedAssetPath = null;
+              _hoveredTextItemId = null;
+              _hoveredCharIndex = null;
+              _hoveredCaretOffset = null;
             });
           },
           onDraggableCanceled: (_, __) {
             setState(() {
               _isDraggingImage = false;
+              _draggedAssetPath = null;
+              _hoveredTextItemId = null;
+              _hoveredCharIndex = null;
+              _hoveredCaretOffset = null;
             });
           },
-          feedback: Material(
-            color: Colors.transparent,
-            child: Opacity(
-              opacity: 0.85,
-              child: Container(
-                width: 220,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 16,
-                      spreadRadius: 4,
-                    ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Image.file(io.File(path), fit: BoxFit.fitWidth),
-              ),
-            ),
-          ),
+          feedback: _buildWordDragPointerBadge(imagePath: path),
           childWhenDragging: Opacity(
-            opacity: 0.25,
+            opacity: 0.2,
             child: imageCard,
           ),
           child: GestureDetector(
             onTap: () => _openFullscreenImage(context, path),
-            onLongPress: () => _showUniversalImageSheet(
+            child: imageCard,
+          ),
+        ),
+        Positioned(
+          top: 8,
+          right: 48,
+          child: GestureDetector(
+            onTap: () => _showUniversalImageSheet(
               context: context,
               imagePath: path,
               question: question,
               isFromNotebook: false,
             ),
-            child: imageCard,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(color: Colors.black87, shape: BoxShape.circle),
+              child: const Icon(Icons.share_outlined, size: 16, color: Colors.white),
+            ),
           ),
         ),
         Positioned(
@@ -1401,293 +1441,451 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     setState(() {});
   }
 
-  void _moveOrInsertImageBetweenLines(String textItemId, int lineIndex, Question question, dynamic dragData) {
-    String? imagePath;
-    String? draggedId;
-
-    if (dragData is String) {
-      final existingIndex = _noteItems.indexWhere((it) => it.id == dragData);
-      if (existingIndex != -1) {
-        draggedId = dragData;
-      } else if (io.File(dragData).existsSync()) {
-        imagePath = dragData;
-      }
-    }
-
-    if (draggedId == null && imagePath == null && _draggedImageId != null) {
-      draggedId = _draggedImageId;
-    }
-
-    final targetTextIndex = _noteItems.indexWhere((it) => it.id == textItemId);
-    if (targetTextIndex == -1) {
-      setState(() {
-        _isDraggingImage = false;
-        _draggedImageId = null;
-      });
-      return;
-    }
-
-    final targetTextItem = _noteItems[targetTextIndex] as NoteTextItem;
-    final lines = targetTextItem.controller.text.split('\n');
-
-    NoteImageItem imageToPlace;
-    if (draggedId != null) {
-      final imgIdx = _noteItems.indexWhere((it) => it.id == draggedId);
-      if (imgIdx == -1) return;
-      imageToPlace = _noteItems.removeAt(imgIdx) as NoteImageItem;
-    } else if (imagePath != null) {
-      imageToPlace = NoteImageItem(
-        id: const Uuid().v4(),
-        imagePath: imagePath,
-        widthPercent: 100,
-      );
-    } else {
-      return;
-    }
-
-    final curTargetIndex = _noteItems.indexOf(targetTextItem);
-    if (curTargetIndex == -1) {
-      _noteItems.add(imageToPlace);
-    } else if (lineIndex <= 0) {
-      _noteItems.insert(curTargetIndex, imageToPlace);
-    } else if (lineIndex >= lines.length) {
-      _noteItems.insert(curTargetIndex + 1, imageToPlace);
-    } else {
-      final linesBefore = lines.sublist(0, lineIndex).join('\n');
-      final linesAfter = lines.sublist(lineIndex).join('\n');
-
-      targetTextItem.controller.text = linesBefore;
-
-      final afterTextItem = NoteTextItem(
-        id: const Uuid().v4(),
-        initialText: linesAfter,
-      );
-      afterTextItem.focusNode.addListener(() { if (mounted) setState(() {}); });
-      afterTextItem.controller.addListener(() {
-        if (_debounce?.isActive ?? false) _debounce!.cancel();
-        _debounce = Timer(const Duration(milliseconds: 300), () {
-          if (_currentQuestion != null) _saveNotes(_currentQuestion!, silent: true);
-        });
-      });
-
-      _noteItems.insert(curTargetIndex + 1, imageToPlace);
-      _noteItems.insert(curTargetIndex + 2, afterTextItem);
-    }
-
-    _consolidateAdjacentTextItems();
-    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
-      _createAndAddTextItem('', question);
-    }
-
-    _isDraggingImage = false;
-    _draggedImageId = null;
-    _saveNotes(question, text: _serializeNotes());
-    setState(() {});
-  }
-
-  void _moveOrInsertImageToItemIndex(int targetIndex, Question question, dynamic dragData) {
-    String? imagePath;
-    String? draggedId;
-
-    if (dragData is String) {
-      final existingIndex = _noteItems.indexWhere((it) => it.id == dragData);
-      if (existingIndex != -1) {
-        draggedId = dragData;
-      } else if (io.File(dragData).existsSync()) {
-        imagePath = dragData;
-      }
-    }
-
-    if (draggedId == null && imagePath == null && _draggedImageId != null) {
-      draggedId = _draggedImageId;
-    }
-
-    NoteImageItem imageToPlace;
-    if (draggedId != null) {
-      final imgIdx = _noteItems.indexWhere((it) => it.id == draggedId);
-      if (imgIdx == -1) return;
-      imageToPlace = _noteItems.removeAt(imgIdx) as NoteImageItem;
-    } else if (imagePath != null) {
-      imageToPlace = NoteImageItem(
-        id: const Uuid().v4(),
-        imagePath: imagePath,
-        widthPercent: 100,
-      );
-    } else {
-      return;
-    }
-
-    final dest = targetIndex.clamp(0, _noteItems.length);
-    _noteItems.insert(dest, imageToPlace);
-
-    _consolidateAdjacentTextItems();
-    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
-      _createAndAddTextItem('', question);
-    }
-
-    _isDraggingImage = false;
-    _draggedImageId = null;
-    _saveNotes(question, text: _serializeNotes());
-    setState(() {});
-  }
-
-  Widget _buildDropInsertionLine({required void Function(Object data) onAccept}) {
-    return DragTarget<Object>(
-      onWillAcceptWithDetails: (details) => true,
-      builder: (context, candidateData, rejectedData) {
-        final isHovered = candidateData.isNotEmpty;
-        return Container(
-          height: isHovered ? 22 : 8,
-          width: double.infinity,
-          alignment: Alignment.center,
-          color: Colors.transparent,
-          child: isHovered
-              ? Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
+  Widget _buildWordDragPointerBadge({String? imagePath}) {
+    return Material(
+      color: Colors.transparent,
+      child: Transform.translate(
+        offset: const Offset(14, 14),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E22).withOpacity(0.96),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withOpacity(0.85), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.6),
+                blurRadius: 12,
+                spreadRadius: 2,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (imagePath != null && io.File(imagePath).existsSync())
+                Opacity(
+                  opacity: 0.35,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.file(
+                      io.File(imagePath),
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
                     ),
-                    Expanded(
-                      child: Container(
-                        height: 2.5,
-                        margin: const EdgeInsets.symmetric(horizontal: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.white.withOpacity(0.8),
-                              blurRadius: 6,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ],
-                )
-              : const SizedBox.shrink(),
-        );
-      },
-      onAcceptWithDetails: (details) {
-        HapticFeedback.mediumImpact();
-        onAccept(details.data);
-      },
+                  ),
+                ),
+              const Icon(
+                Icons.image_outlined,
+                color: Colors.white,
+                size: 22,
+              ),
+              Positioned(
+                right: 3,
+                bottom: 3,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: const BoxDecoration(
+                    color: AppTheme.samsungBlue,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.arrow_downward_rounded, size: 8, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _buildDraggingTextItem(NoteTextItem item, Question question) {
-    final text = item.controller.text;
-    final lines = text.split('\n');
+  void _updateLetterCaretFromPointer(Offset globalPos) {
+    if (!_isDraggingImage) return;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildDropInsertionLine(
-          onAccept: (data) => _moveOrInsertImageBetweenLines(item.id, 0, question, data),
-        ),
-        for (int l = 0; l < lines.length; l++) ...[
-          DragTarget<Object>(
-            onWillAcceptWithDetails: (details) => true,
-            onAcceptWithDetails: (details) {
-              HapticFeedback.mediumImpact();
-              _moveOrInsertImageBetweenLines(item.id, l + 1, question, details.data);
-            },
-            builder: (context, candidateData, rejectedData) {
-              final isHovered = candidateData.isNotEmpty;
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-                decoration: isHovered
-                    ? BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(6),
-                      )
-                    : null,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      lines[l].isEmpty ? ' ' : lines[l],
-                      style: GoogleFonts.inter(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w400,
-                        color: AppTheme.textPrimary,
-                        height: 1.6,
-                      ),
+    for (final item in _noteItems) {
+      if (item is NoteTextItem) {
+        final key = _textItemKeys[item.id];
+        final renderBox = key?.currentContext?.findRenderObject() as RenderBox?;
+        if (renderBox != null && renderBox.hasSize) {
+          final localPos = renderBox.globalToLocal(globalPos);
+          if (localPos.dy >= -10 &&
+              localPos.dy <= renderBox.size.height + 15 &&
+              localPos.dx >= -20 &&
+              localPos.dx <= renderBox.size.width + 20) {
+            final text = item.controller.text;
+            if (text.isEmpty) {
+              if (_hoveredTextItemId != item.id || _hoveredCharIndex != 0) {
+                setState(() {
+                  _hoveredTextItemId = item.id;
+                  _hoveredCharIndex = 0;
+                  _hoveredCaretOffset = Offset.zero;
+                });
+              }
+              return;
+            }
+
+            final textPainter = TextPainter(
+              text: TextSpan(
+                text: text,
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w400,
+                  color: AppTheme.textPrimary,
+                  height: 1.6,
+                ),
+              ),
+              textDirection: TextDirection.ltr,
+            );
+            textPainter.layout(maxWidth: renderBox.size.width);
+
+            final clampedY = localPos.dy.clamp(0.0, renderBox.size.height);
+            final clampedX = localPos.dx.clamp(0.0, renderBox.size.width);
+            final textPos = textPainter.getPositionForOffset(Offset(clampedX, clampedY));
+            final charIdx = textPos.offset.clamp(0, text.length);
+            final caretOffset = textPainter.getOffsetForCaret(
+              TextPosition(offset: charIdx),
+              Rect.zero,
+            );
+
+            if (_hoveredTextItemId != item.id ||
+                _hoveredCharIndex != charIdx ||
+                _hoveredCaretOffset != caretOffset) {
+              setState(() {
+                _hoveredTextItemId = item.id;
+                _hoveredCharIndex = charIdx;
+                _hoveredCaretOffset = caretOffset;
+              });
+            }
+            return;
+          }
+        }
+      }
+    }
+
+    if (_hoveredTextItemId != null) {
+      setState(() {
+        _hoveredTextItemId = null;
+        _hoveredCharIndex = null;
+        _hoveredCaretOffset = null;
+      });
+    }
+  }
+
+  void _insertImageAtCharIndex({
+    required String textItemId,
+    required int charIndex,
+    required dynamic dragData,
+    required int questionId,
+  }) async {
+    String? imagePath;
+    String? draggedId;
+
+    if (dragData is String) {
+      final existingIndex = _noteItems.indexWhere((it) => it.id == dragData);
+      if (existingIndex != -1) {
+        draggedId = dragData;
+      } else {
+        imagePath = dragData;
+      }
+    }
+
+    if (draggedId == null && imagePath == null) {
+      if (_draggedImageId != null) {
+        draggedId = _draggedImageId;
+      } else if (_draggedAssetPath != null) {
+        imagePath = _draggedAssetPath;
+      }
+    }
+
+    NoteImageItem imageToPlace;
+    if (draggedId != null) {
+      final imgIdx = _noteItems.indexWhere((it) => it.id == draggedId);
+      if (imgIdx == -1) return;
+      imageToPlace = _noteItems.removeAt(imgIdx) as NoteImageItem;
+    } else if (imagePath != null) {
+      imageToPlace = NoteImageItem(
+        id: const Uuid().v4(),
+        imagePath: imagePath,
+        widthPercent: 100,
+      );
+    } else {
+      return;
+    }
+
+    final textItemIndex = _noteItems.indexWhere((it) => it.id == textItemId);
+    if (textItemIndex == -1) {
+      _noteItems.add(imageToPlace);
+    } else {
+      final targetTextItem = _noteItems[textItemIndex] as NoteTextItem;
+      final fullText = targetTextItem.controller.text;
+
+      if (charIndex <= 0) {
+        _noteItems.insert(textItemIndex, imageToPlace);
+      } else if (charIndex >= fullText.length) {
+        _noteItems.insert(textItemIndex + 1, imageToPlace);
+      } else {
+        // Between letters: divide into paragraph above and paragraph below
+        final textBefore = fullText.substring(0, charIndex);
+        final textAfter = fullText.substring(charIndex);
+
+        targetTextItem.controller.text = textBefore;
+
+        final afterTextItem = NoteTextItem(
+          id: const Uuid().v4(),
+          initialText: textAfter,
+        );
+        afterTextItem.focusNode.addListener(() { if (mounted) setState(() {}); });
+        afterTextItem.controller.addListener(() {
+          if (_debounce?.isActive ?? false) _debounce!.cancel();
+          _debounce = Timer(const Duration(milliseconds: 300), () {
+            if (_currentQuestion != null) _saveNotes(_currentQuestion!, silent: true);
+          });
+        });
+
+        _noteItems.insert(textItemIndex + 1, imageToPlace);
+        _noteItems.insert(textItemIndex + 2, afterTextItem);
+      }
+    }
+
+    _consolidateAdjacentTextItems();
+    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+      final repo = await ref.read(questionRepositoryProvider.future);
+      final q = await repo.isar.questions.get(questionId);
+      if (q != null) {
+        _createAndAddTextItem('', q);
+      }
+    }
+
+    _isDraggingImage = false;
+    _draggedImageId = null;
+    _draggedAssetPath = null;
+    _hoveredTextItemId = null;
+    _hoveredCharIndex = null;
+    _hoveredCaretOffset = null;
+
+    final repo = await ref.read(questionRepositoryProvider.future);
+    final q = await repo.isar.questions.get(questionId);
+    if (q != null) {
+      _saveNotes(q, text: _serializeNotes());
+    }
+    HapticFeedback.mediumImpact();
+    setState(() {});
+  }
+
+  void _insertImageAtNotebookEnd(dynamic dragData, int questionId) async {
+    String? imagePath;
+    String? draggedId;
+
+    if (dragData is String) {
+      final existingIndex = _noteItems.indexWhere((it) => it.id == dragData);
+      if (existingIndex != -1) {
+        draggedId = dragData;
+      } else {
+        imagePath = dragData;
+      }
+    }
+
+    if (draggedId == null && imagePath == null) {
+      if (_draggedImageId != null) {
+        draggedId = _draggedImageId;
+      } else if (_draggedAssetPath != null) {
+        imagePath = _draggedAssetPath;
+      }
+    }
+
+    NoteImageItem imageToPlace;
+    if (draggedId != null) {
+      final imgIdx = _noteItems.indexWhere((it) => it.id == draggedId);
+      if (imgIdx == -1) return;
+      imageToPlace = _noteItems.removeAt(imgIdx) as NoteImageItem;
+    } else if (imagePath != null) {
+      imageToPlace = NoteImageItem(
+        id: const Uuid().v4(),
+        imagePath: imagePath,
+        widthPercent: 100,
+      );
+    } else {
+      return;
+    }
+
+    _noteItems.add(imageToPlace);
+    _consolidateAdjacentTextItems();
+    final repo = await ref.read(questionRepositoryProvider.future);
+    final q = await repo.isar.questions.get(questionId);
+    if (q != null) {
+      if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
+        _createAndAddTextItem('', q);
+      }
+      _saveNotes(q, text: _serializeNotes());
+    }
+
+    _isDraggingImage = false;
+    _draggedImageId = null;
+    _draggedAssetPath = null;
+    _hoveredTextItemId = null;
+    _hoveredCharIndex = null;
+    _hoveredCaretOffset = null;
+
+    HapticFeedback.mediumImpact();
+    setState(() {});
+  }
+
+  Widget _buildDraggingTextItem(NoteTextItem item, Question question) {
+    final key = _getTextItemKey(item.id);
+    final text = item.controller.text;
+    final isHovered = _hoveredTextItemId == item.id && _hoveredCaretOffset != null;
+
+    return Container(
+      key: key,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Text(
+            text.isEmpty ? ' ' : text,
+            style: GoogleFonts.inter(
+              fontSize: 15,
+              fontWeight: FontWeight.w400,
+              color: AppTheme.textPrimary,
+              height: 1.6,
+            ),
+          ),
+          if (isHovered)
+            Positioned(
+              left: _hoveredCaretOffset!.dx - 1.5,
+              top: _hoveredCaretOffset!.dy,
+              child: Container(
+                width: 3.0,
+                height: 22.0,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.white.withOpacity(0.95),
+                      blurRadius: 6,
+                      spreadRadius: 1,
                     ),
-                    if (isHovered)
-                      Container(
-                        height: 2.5,
-                        margin: const EdgeInsets.only(top: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.white.withOpacity(0.8),
-                              blurRadius: 6,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                      ),
                   ],
                 ),
-              );
-            },
-          ),
-          _buildDropInsertionLine(
-            onAccept: (data) => _moveOrInsertImageBetweenLines(item.id, l + 1, question, data),
-          ),
+              ),
+            ),
         ],
-      ],
+      ),
     );
   }
 
   Widget _buildNotebookContent(Question question) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.black.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (_isDraggingImage)
-            _buildDropInsertionLine(
-              onAccept: (data) => _moveOrInsertImageToItemIndex(0, question, data),
+    return DropRegion(
+      formats: Formats.standardFormats,
+      onDropOver: (event) {
+        if (!_isDraggingNotebook && mounted) {
+          setState(() => _isDraggingNotebook = true);
+        }
+        return DropOperation.copy;
+      },
+      onDropLeave: (event) {
+        if (_isDraggingNotebook && mounted) {
+          setState(() => _isDraggingNotebook = false);
+        }
+      },
+      onPerformDrop: (event) async {
+        if (mounted) setState(() => _isDraggingNotebook = false);
+        HapticFeedback.mediumImpact();
+        final docsDir = await getApplicationDocumentsDirectory();
+        for (final item in event.session.items) {
+          final reader = item.dataReader;
+          if (reader != null) {
+            reader.getFile(null, (file) async {
+              try {
+                final bytes = await file.readAll();
+                if (bytes.isNotEmpty) {
+                  String ext = 'jpg';
+                  final lowerName = (file.fileName ?? '').toLowerCase();
+                  if (lowerName.endsWith('.png')) {
+                    ext = 'png';
+                  } else if (lowerName.endsWith('.webp')) {
+                    ext = 'webp';
+                  } else if (lowerName.endsWith('.jpeg')) {
+                    ext = 'jpeg';
+                  }
+                  final destPath = '${docsDir.path}/${const Uuid().v4()}.$ext';
+                  await io.File(destPath).writeAsBytes(bytes);
+
+                  final repo = await ref.read(questionRepositoryProvider.future);
+                  await repo.isar.writeTxn(() async {
+                    final q = await repo.isar.questions.get(question.id);
+                    if (q != null) {
+                      final images = List<String>.from(q.images ?? []);
+                      if (!images.contains(destPath)) {
+                        images.add(destPath);
+                        q.images = images;
+                        await repo.isar.collection<Question>().put(q);
+                      }
+                    }
+                  });
+
+                  _insertImageAtNotebookEnd(destPath, question.id);
+                  if (mounted) setState(() {});
+                }
+              } catch (e) {
+                debugPrint('Failed to save dropped file into notebook: $e');
+              }
+            });
+          }
+        }
+      },
+      child: DragTarget<Object>(
+        key: _notebookKey,
+        onWillAcceptWithDetails: (details) => true,
+        onMove: (details) {
+          if (_isDraggingImage) {
+            _updateLetterCaretFromPointer(details.offset);
+          }
+        },
+        onAcceptWithDetails: (details) {
+          HapticFeedback.mediumImpact();
+          if (_hoveredTextItemId != null && _hoveredCharIndex != null) {
+            _insertImageAtCharIndex(
+              textItemId: _hoveredTextItemId!,
+              charIndex: _hoveredCharIndex!,
+              dragData: details.data,
+              questionId: question.id,
+            );
+          } else {
+            _insertImageAtNotebookEnd(details.data, question.id);
+          }
+        },
+        builder: (context, candidateData, rejectedData) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.black.withOpacity(0.4),
+              borderRadius: BorderRadius.circular(16),
             ),
-          for (int i = 0; i < _noteItems.length; i++) ...[
-            if (_noteItems[i] is NoteTextItem) ...[
-              if (_isDraggingImage)
-                _buildDraggingTextItem(_noteItems[i] as NoteTextItem, question)
-              else
-                _buildNoteTextField(_noteItems[i] as NoteTextItem, question),
-            ] else if (_noteItems[i] is NoteImageItem) ...[
-              _buildNoteImageWidget(_noteItems[i] as NoteImageItem, i, question),
-            ],
-          ],
-          if (_isDraggingImage)
-            _buildDropInsertionLine(
-              onAccept: (data) => _moveOrInsertImageToItemIndex(_noteItems.length, question, data),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (int i = 0; i < _noteItems.length; i++) ...[
+                  if (_noteItems[i] is NoteTextItem) ...[
+                    if (_isDraggingImage)
+                      _buildDraggingTextItem(_noteItems[i] as NoteTextItem, question)
+                    else
+                      _buildNoteTextField(_noteItems[i] as NoteTextItem, question),
+                  ] else if (_noteItems[i] is NoteImageItem) ...[
+                    _buildNoteImageWidget(_noteItems[i] as NoteImageItem, i, question),
+                  ],
+                ],
+              ],
             ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -1786,50 +1984,38 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         children: [
           LongPressDraggable<String>(
             data: item.id,
-            delay: const Duration(milliseconds: 250),
+            delay: const Duration(milliseconds: 150),
             onDragStarted: () {
               HapticFeedback.lightImpact();
               setState(() {
                 _isDraggingImage = true;
                 _draggedImageId = item.id;
+                _draggedAssetPath = null;
               });
             },
             onDragEnd: (_) {
               setState(() {
                 _isDraggingImage = false;
                 _draggedImageId = null;
+                _draggedAssetPath = null;
+                _hoveredTextItemId = null;
+                _hoveredCharIndex = null;
+                _hoveredCaretOffset = null;
               });
             },
             onDraggableCanceled: (_, __) {
               setState(() {
                 _isDraggingImage = false;
                 _draggedImageId = null;
+                _draggedAssetPath = null;
+                _hoveredTextItemId = null;
+                _hoveredCharIndex = null;
+                _hoveredCaretOffset = null;
               });
             },
-            feedback: Material(
-              color: Colors.transparent,
-              child: Opacity(
-                opacity: 0.65,
-                child: Container(
-                  width: 220,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white, width: 2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.5),
-                        blurRadius: 16,
-                        spreadRadius: 4,
-                      ),
-                    ],
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Image.file(io.File(item.imagePath), fit: BoxFit.fitWidth),
-                ),
-              ),
-            ),
+            feedback: _buildWordDragPointerBadge(imagePath: item.imagePath),
             childWhenDragging: Opacity(
-              opacity: 0.15,
+              opacity: 0.2,
               child: imageCard,
             ),
             child: GestureDetector(
@@ -1838,15 +2024,6 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                 setState(() {
                   _selectedImageId = isSelected ? null : item.id;
                 });
-              },
-              onLongPress: () {
-                _showUniversalImageSheet(
-                  context: context,
-                  imagePath: item.imagePath,
-                  question: question,
-                  isFromNotebook: true,
-                  noteImageId: item.id,
-                );
               },
               child: imageCard,
             ),
