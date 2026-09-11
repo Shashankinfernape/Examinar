@@ -740,11 +740,19 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         }
 
         if (validMatches.isEmpty) {
+          int difficulty = 3;
+          final filledMatches = RegExp(r'[★⭐🌟]').allMatches(text);
+          if (filledMatches.isNotEmpty) {
+            difficulty = filledMatches.length.clamp(1, 5);
+          } else if (RegExp(r'[☆]').hasMatch(text)) {
+            difficulty = 1;
+          }
+          final cleanText = text.replaceAll(RegExp(r'[★☆⭐🌟]'), '').trim();
           parsedQuestions.add({
             'title': 'Pasted Content',
-            'content': text,
+            'content': cleanText,
             'unitIndex': 1,
-            'difficulty': 3,
+            'difficulty': difficulty,
             'qNum': 1,
           });
         } else {
@@ -758,15 +766,47 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
             final block = text.substring(start, end).trim();
             final lines = block.split('\n');
             String title = lines[0].trim();
-            String content = lines.skip(1).join('\n').trim();
 
-            int starCount = 0;
-            starCount += title.split('⭐').length - 1;
-            starCount += content.split('⭐').length - 1;
-            int difficulty = starCount > 0 ? starCount.clamp(1, 5) : 3;
+            // 1. Difficulty Leveling (detect ★, ☆, ⭐, 🌟, or text rating)
+            int difficulty = 3;
+            final filledMatches = RegExp(r'[★⭐🌟]').allMatches(block);
+            if (filledMatches.isNotEmpty) {
+              difficulty = filledMatches.length.clamp(1, 5);
+            } else if (RegExp(r'[☆]').hasMatch(block)) {
+              difficulty = 1;
+            } else {
+              final textDiffMatch = RegExp(
+                r'(?:difficulty|level|rating|stars?)[:\s]*\[?([1-5])(?:\s*(?:\/5|stars?))?\]?',
+                caseSensitive: false,
+              ).firstMatch(block);
+              if (textDiffMatch != null) {
+                difficulty = int.tryParse(textDiffMatch.group(1)!) ?? 3;
+              } else {
+                final marksMatch = RegExp(r'\[(\d+)\s*Marks?\]', caseSensitive: false).firstMatch(block);
+                if (marksMatch != null) {
+                  final marks = int.tryParse(marksMatch.group(1)!) ?? 2;
+                  if (marks <= 2) {
+                    difficulty = 2;
+                  } else if (marks <= 8) {
+                    difficulty = 3;
+                  } else if (marks <= 13) {
+                    difficulty = 4;
+                  } else {
+                    difficulty = 5;
+                  }
+                }
+              }
+            }
 
-            title = title.replaceAll('⭐', '').trim();
-            content = content.replaceAll('⭐', '').trim();
+            // 2. Comprehensive Star Scrubbing
+            final starScrubber = RegExp(r'[★☆⭐🌟]');
+            title = title.replaceAll(starScrubber, '').trim();
+
+            final contentLines = lines.skip(1).map((l) {
+              return l.replaceAll(starScrubber, '').trim();
+            }).where((l) => l.isNotEmpty).toList();
+
+            String content = contentLines.join('\n').trim();
 
             // 2. Intelligent Unit Mapping
             final numberMatch = RegExp(r'(\d+)').firstMatch(marker);
