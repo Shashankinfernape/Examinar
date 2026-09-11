@@ -30,12 +30,25 @@ class QuestionDetailScreen extends ConsumerStatefulWidget {
 class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   final _notesController = TextEditingController();
   final _questionController = TextEditingController();
+  final _notesFocusNode = FocusNode();
+  final _questionFocusNode = FocusNode();
   bool _hasInitializedNotes = false;
   bool _hasInitializedQuestion = false;
   bool _isDragging = false;
   Timer? _debounce;
   Timer? _questionDebounce;
   Question? _currentQuestion;
+
+  @override
+  void initState() {
+    super.initState();
+    _notesFocusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
+    _questionFocusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
@@ -51,6 +64,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         _saveQuestionNotes(_currentQuestion!, text: _questionController.text, silent: true);
       }
     }
+    _notesFocusNode.dispose();
+    _questionFocusNode.dispose();
     _notesController.dispose();
     _questionController.dispose();
     super.dispose();
@@ -190,9 +205,17 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             onDragExited: (detail) => setState(() => _isDragging = false),
             child: Scaffold(
               backgroundColor: AppTheme.black,
-              body: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
+              body: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () {
+                  _notesFocusNode.unfocus();
+                  _questionFocusNode.unfocus();
+                  FocusScope.of(context).unfocus();
+                },
+                child: CustomScrollView(
+                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
                 // ONE UI DYNAMIC HEADER
                 SliverToBoxAdapter(
                   child: Padding(
@@ -240,8 +263,36 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                         padding: const EdgeInsets.all(16),
                         child: TextField(
                           controller: _questionController,
+                          focusNode: _questionFocusNode,
                           maxLines: null,
                           minLines: 1,
+                          textInputAction: TextInputAction.done,
+                          onEditingComplete: () {
+                            _questionFocusNode.unfocus();
+                            FocusScope.of(context).unfocus();
+                            _saveQuestionNotes(question, text: _questionController.text);
+                          },
+                          contextMenuBuilder: (context, editableTextState) {
+                            final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
+                            final int pasteIndex = buttonItems.indexWhere((item) => item.type == ContextMenuButtonType.paste);
+                            if (pasteIndex != -1) {
+                              final originalPaste = buttonItems[pasteIndex].onPressed;
+                              buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
+                                onPressed: () {
+                                  if (originalPaste != null) originalPaste();
+                                  Future.microtask(() {
+                                    _questionFocusNode.unfocus();
+                                    FocusScope.of(context).unfocus();
+                                    _saveQuestionNotes(question, text: _questionController.text);
+                                  });
+                                },
+                              );
+                            }
+                            return AdaptiveTextSelectionToolbar.buttonItems(
+                              anchors: editableTextState.contextMenuAnchors,
+                              buttonItems: buttonItems,
+                            );
+                          },
                           style: GoogleFonts.inter(
                             fontSize: 15, 
                             fontWeight: FontWeight.w400, 
@@ -270,22 +321,117 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                       // 4. NOTES CARD (User Notepad)
                       _buildOneUICard(
                         title: 'Notebook',
-                        trailing: TextButton.icon(
-                          onPressed: () => _askChatGPT(question),
-                          icon: const Icon(Icons.auto_awesome, size: 16, color: AppTheme.samsungBlue),
-                          label: const Text('Generate Answer', style: TextStyle(color: AppTheme.samsungBlue, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5)),
-                          style: TextButton.styleFrom(
-                            backgroundColor: AppTheme.samsungBlue.withValues(alpha: 0.15),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-                            minimumSize: const Size(0, 32),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_notesFocusNode.hasFocus)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: TextButton(
+                                  onPressed: () {
+                                    _notesFocusNode.unfocus();
+                                    FocusScope.of(context).unfocus();
+                                    _saveNotes(question, text: _notesController.text);
+                                  },
+                                  style: TextButton.styleFrom(
+                                    backgroundColor: Colors.white.withOpacity(0.12),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                    minimumSize: const Size(0, 30),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  ),
+                                  child: const Text('DONE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
+                                ),
+                              ),
+                            TextButton.icon(
+                              onPressed: () async {
+                                final data = await Clipboard.getData(Clipboard.kTextPlain);
+                                if (data != null && data.text != null && data.text!.isNotEmpty) {
+                                  setState(() {
+                                    _notesController.text = data.text!;
+                                  });
+                                  _saveNotes(question, text: data.text!);
+                                  // Immediately exit editing mode and dismiss keyboard/blinker
+                                  _notesFocusNode.unfocus();
+                                  FocusScope.of(context).unfocus();
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Pasted and saved to Notebook!'),
+                                        backgroundColor: Colors.white24,
+                                        duration: Duration(seconds: 2),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  }
+                                } else {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Clipboard is empty!'),
+                                        backgroundColor: Colors.orange,
+                                        duration: Duration(seconds: 2),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                              icon: const Icon(Icons.content_paste_rounded, size: 13, color: Colors.white),
+                              label: const Text('PASTE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
+                              style: TextButton.styleFrom(
+                                backgroundColor: Colors.white.withOpacity(0.08),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                minimumSize: const Size(0, 30),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            TextButton.icon(
+                              onPressed: () => _askChatGPT(question),
+                              icon: const Icon(Icons.auto_awesome, size: 13, color: Colors.white),
+                              label: const Text('Generate', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
+                              style: TextButton.styleFrom(
+                                backgroundColor: Colors.white.withOpacity(0.08),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                minimumSize: const Size(0, 30),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              ),
+                            ),
+                          ],
                         ),
                         padding: const EdgeInsets.all(16),
                         child: TextField(
                           controller: _notesController,
+                          focusNode: _notesFocusNode,
                           maxLines: null,
                           minLines: 1,
+                          textInputAction: TextInputAction.done,
+                          onEditingComplete: () {
+                            _notesFocusNode.unfocus();
+                            FocusScope.of(context).unfocus();
+                            _saveNotes(question, text: _notesController.text);
+                          },
+                          contextMenuBuilder: (context, editableTextState) {
+                            final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
+                            final int pasteIndex = buttonItems.indexWhere((item) => item.type == ContextMenuButtonType.paste);
+                            if (pasteIndex != -1) {
+                              final originalPaste = buttonItems[pasteIndex].onPressed;
+                              buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
+                                onPressed: () {
+                                  if (originalPaste != null) originalPaste();
+                                  Future.microtask(() {
+                                    _notesFocusNode.unfocus();
+                                    FocusScope.of(context).unfocus();
+                                    _saveNotes(question, text: _notesController.text);
+                                  });
+                                },
+                              );
+                            }
+                            return AdaptiveTextSelectionToolbar.buttonItems(
+                              anchors: editableTextState.contextMenuAnchors,
+                              buttonItems: buttonItems,
+                            );
+                          },
                           style: GoogleFonts.inter(
                             fontSize: 15, 
                             fontWeight: FontWeight.w400, 
@@ -400,6 +546,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                   ),
                 ),
               ],
+            ),
             ),
           ),
         );
