@@ -1171,28 +1171,18 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                   20, 12, 20, MediaQuery.of(context).padding.bottom + 16),
               child: GestureDetector(
                 onTap: _save,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
+                child: Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
                     color: _selectedIds.isEmpty
-                        ? const Color(0xFF3E82F7).withOpacity(0.12)
-                        : const Color(0xFF3E82F7),
+                        ? Colors.white.withOpacity(0.06)
+                        : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: const Color(0xFF3E82F7).withOpacity(_selectedIds.isEmpty ? 0.4 : 0.8),
+                      color: _selectedIds.isEmpty ? Colors.white12 : Colors.white,
                       width: 1.5,
                     ),
-                    boxShadow: _selectedIds.isNotEmpty
-                        ? [
-                            BoxShadow(
-                              color: const Color(0xFF3E82F7).withOpacity(0.35),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ]
-                        : null,
                   ),
                   child: Center(
                     child: Text(
@@ -1200,7 +1190,7 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                           ? 'SAVE SESSION'
                           : 'SAVE  ·  ${_selectedIds.length} TASK${_selectedIds.length == 1 ? '' : 'S'}',
                       style: TextStyle(
-                          color: _selectedIds.isEmpty ? const Color(0xFF3E82F7) : Colors.white,
+                          color: _selectedIds.isEmpty ? Colors.white38 : Colors.black,
                           fontWeight: FontWeight.w800,
                           fontSize: 13,
                           letterSpacing: 2.0),
@@ -1277,18 +1267,16 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
       itemBuilder: (_, i) {
         final q = _questions[i];
         final sel = _selectedIds.contains(q.id);
-        const accentBlue = Color(0xFF3E82F7);
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
+          child: Container(
             decoration: BoxDecoration(
-              color: sel ? accentBlue.withOpacity(0.10) : Colors.white.withOpacity(0.03),
+              color: sel ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.02),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: sel ? accentBlue.withOpacity(0.45) : Colors.white.withOpacity(0.06),
-                width: sel ? 1.2 : 1.0,
+                color: sel ? Colors.white30 : Colors.white.withOpacity(0.05),
+                width: 1.0,
               ),
             ),
             child: Material(
@@ -1301,39 +1289,27 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                   child: Row(
                     children: [
-                      // Modern One UI Selection Button
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
+                      // Apple-style clean circular checkbox
+                      Container(
                         width: 22,
                         height: 22,
                         decoration: BoxDecoration(
-                          color: sel ? accentBlue : Colors.white.withOpacity(0.04),
+                          color: sel ? Colors.white : Colors.transparent,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: sel ? accentBlue : Colors.white24,
+                            color: sel ? Colors.white : Colors.white24,
                             width: 1.5,
                           ),
-                          boxShadow: sel
-                              ? [
-                                  BoxShadow(
-                                    color: accentBlue.withOpacity(0.4),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 1),
-                                  ),
-                                ]
-                              : null,
                         ),
-                        child: Center(
-                          child: AnimatedOpacity(
-                            duration: const Duration(milliseconds: 150),
-                            opacity: sel ? 1.0 : 0.0,
-                            child: const Icon(
-                              Icons.check_rounded,
-                              size: 14,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
+                        child: sel
+                            ? const Center(
+                                child: Icon(
+                                  Icons.check,
+                                  size: 13,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : null,
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -1341,22 +1317,12 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                           q.title.replaceAll(RegExp(r'[★☆⭐🌟\*]'), '').split('\n').first.trim(),
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight: sel ? FontWeight.w600 : FontWeight.w500,
-                            color: sel ? Colors.white : AppTheme.textPrimary.withOpacity(0.85),
+                            fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
+                            color: sel ? Colors.white : AppTheme.textPrimary.withOpacity(0.8),
                             height: 1.3,
                           ),
                         ),
                       ),
-                      if (q.difficulty > 0) ...[
-                        const SizedBox(width: 8),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: List.generate(
-                            q.difficulty.clamp(1, 5),
-                            (_) => const Icon(Icons.star_rounded, size: 13, color: Color(0xFFFDD663)),
-                          ),
-                        ),
-                      ],
                       if (q.status == QuestionStatus.completed) ...[
                         const SizedBox(width: 8),
                         Container(
