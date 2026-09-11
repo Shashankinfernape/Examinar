@@ -705,6 +705,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         LongPressDraggable<String>(
           data: path,
           delay: const Duration(milliseconds: 150),
+          dragAnchorStrategy: pointerDragAnchorStrategy,
           onDragStarted: () {
             HapticFeedback.lightImpact();
             setState(() {
@@ -1445,20 +1446,20 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     return Material(
       color: Colors.transparent,
       child: Transform.translate(
-        offset: const Offset(14, 14),
+        offset: const Offset(12, 12),
         child: Container(
-          width: 44,
-          height: 44,
+          width: 38,
+          height: 38,
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1E22).withOpacity(0.96),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.white.withOpacity(0.85), width: 1.5),
+            color: const Color(0xFF1E1E22).withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.85), width: 1.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.6),
-                blurRadius: 12,
+                color: Colors.black.withValues(alpha: 0.6),
+                blurRadius: 10,
                 spreadRadius: 2,
-                offset: const Offset(0, 4),
+                offset: const Offset(0, 3),
               ),
             ],
           ),
@@ -1469,11 +1470,11 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                 Opacity(
                   opacity: 0.35,
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
                     child: Image.file(
                       io.File(imagePath),
-                      width: 40,
-                      height: 40,
+                      width: 34,
+                      height: 34,
                       fit: BoxFit.cover,
                     ),
                   ),
@@ -1481,19 +1482,19 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               const Icon(
                 Icons.image_outlined,
                 color: Colors.white,
-                size: 22,
+                size: 20,
               ),
               Positioned(
-                right: 3,
-                bottom: 3,
+                right: 2,
+                bottom: 2,
                 child: Container(
-                  width: 12,
-                  height: 12,
+                  width: 10,
+                  height: 10,
                   decoration: const BoxDecoration(
                     color: AppTheme.samsungBlue,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.arrow_downward_rounded, size: 8, color: Colors.white),
+                  child: const Icon(Icons.arrow_downward_rounded, size: 7, color: Colors.white),
                 ),
               ),
             ],
@@ -1506,64 +1507,101 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   void _updateLetterCaretFromPointer(Offset globalPos) {
     if (!_isDraggingImage) return;
 
+    NoteTextItem? targetItem;
+    RenderBox? targetBox;
+    Offset? targetLocalPos;
+
+    // 1. Direct hit-test: which item contains globalPos vertically?
     for (final item in _noteItems) {
       if (item is NoteTextItem) {
         final key = _textItemKeys[item.id];
         final renderBox = key?.currentContext?.findRenderObject() as RenderBox?;
         if (renderBox != null && renderBox.hasSize) {
           final localPos = renderBox.globalToLocal(globalPos);
-          if (localPos.dy >= -10 &&
-              localPos.dy <= renderBox.size.height + 15 &&
-              localPos.dx >= -20 &&
-              localPos.dx <= renderBox.size.width + 20) {
-            final text = item.controller.text;
-            if (text.isEmpty) {
-              if (_hoveredTextItemId != item.id || _hoveredCharIndex != 0) {
-                setState(() {
-                  _hoveredTextItemId = item.id;
-                  _hoveredCharIndex = 0;
-                  _hoveredCaretOffset = Offset.zero;
-                });
-              }
-              return;
-            }
-
-            final textPainter = TextPainter(
-              text: TextSpan(
-                text: text,
-                style: GoogleFonts.inter(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w400,
-                  color: AppTheme.textPrimary,
-                  height: 1.6,
-                ),
-              ),
-              textDirection: TextDirection.ltr,
-            );
-            textPainter.layout(maxWidth: renderBox.size.width);
-
-            final clampedY = localPos.dy.clamp(0.0, renderBox.size.height);
-            final clampedX = localPos.dx.clamp(0.0, renderBox.size.width);
-            final textPos = textPainter.getPositionForOffset(Offset(clampedX, clampedY));
-            final charIdx = textPos.offset.clamp(0, text.length);
-            final caretOffset = textPainter.getOffsetForCaret(
-              TextPosition(offset: charIdx),
-              Rect.zero,
-            );
-
-            if (_hoveredTextItemId != item.id ||
-                _hoveredCharIndex != charIdx ||
-                _hoveredCaretOffset != caretOffset) {
-              setState(() {
-                _hoveredTextItemId = item.id;
-                _hoveredCharIndex = charIdx;
-                _hoveredCaretOffset = caretOffset;
-              });
-            }
-            return;
+          if (localPos.dy >= 0 && localPos.dy <= renderBox.size.height) {
+            targetItem = item;
+            targetBox = renderBox;
+            targetLocalPos = localPos;
+            break;
           }
         }
       }
+    }
+
+    // 2. If pointer is in margin between items or slightly above/below, find nearest item
+    if (targetItem == null) {
+      double minDistance = double.infinity;
+      for (final item in _noteItems) {
+        if (item is NoteTextItem) {
+          final key = _textItemKeys[item.id];
+          final renderBox = key?.currentContext?.findRenderObject() as RenderBox?;
+          if (renderBox != null && renderBox.hasSize) {
+            final localPos = renderBox.globalToLocal(globalPos);
+            double dist = 0;
+            if (localPos.dy < 0) {
+              dist = -localPos.dy;
+            } else if (localPos.dy > renderBox.size.height) {
+              dist = localPos.dy - renderBox.size.height;
+            }
+            if (dist < 40 && dist < minDistance) {
+              minDistance = dist;
+              targetItem = item;
+              targetBox = renderBox;
+              targetLocalPos = localPos;
+            }
+          }
+        }
+      }
+    }
+
+    if (targetItem != null && targetBox != null && targetLocalPos != null) {
+      final activeItem = targetItem;
+      final text = activeItem.controller.text;
+      if (text.isEmpty) {
+        if (_hoveredTextItemId != activeItem.id || _hoveredCharIndex != 0) {
+          setState(() {
+            _hoveredTextItemId = activeItem.id;
+            _hoveredCharIndex = 0;
+            _hoveredCaretOffset = Offset.zero;
+          });
+        }
+        return;
+      }
+
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: GoogleFonts.inter(
+            fontSize: 15,
+            fontWeight: FontWeight.w400,
+            color: AppTheme.textPrimary,
+            height: 1.6,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      textPainter.layout(maxWidth: targetBox.size.width);
+
+      // The container has 4px vertical padding, so subtract 4.0 for text coordinate
+      final localTextY = (targetLocalPos.dy - 4.0).clamp(0.0, textPainter.height);
+      final localTextX = targetLocalPos.dx.clamp(0.0, targetBox.size.width);
+      final textPos = textPainter.getPositionForOffset(Offset(localTextX, localTextY));
+      final charIdx = textPos.offset.clamp(0, text.length);
+      final caretOffset = textPainter.getOffsetForCaret(
+        TextPosition(offset: charIdx),
+        Rect.zero,
+      );
+
+      if (_hoveredTextItemId != activeItem.id ||
+          _hoveredCharIndex != charIdx ||
+          _hoveredCaretOffset != caretOffset) {
+        setState(() {
+          _hoveredTextItemId = activeItem.id;
+          _hoveredCharIndex = charIdx;
+          _hoveredCaretOffset = caretOffset;
+        });
+      }
+      return;
     }
 
     if (_hoveredTextItemId != null) {
@@ -1757,18 +1795,18 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           ),
           if (isHovered)
             Positioned(
-              left: _hoveredCaretOffset!.dx - 1.5,
+              left: _hoveredCaretOffset!.dx - 1.25,
               top: _hoveredCaretOffset!.dy,
               child: Container(
-                width: 3.0,
-                height: 22.0,
+                width: 2.5,
+                height: 24.0,
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(1.5),
+                  borderRadius: BorderRadius.circular(1.25),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.white.withOpacity(0.95),
-                      blurRadius: 6,
+                      color: Colors.white.withValues(alpha: 0.9),
+                      blurRadius: 4,
                       spreadRadius: 1,
                     ),
                   ],
@@ -1843,11 +1881,6 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       child: DragTarget<Object>(
         key: _notebookKey,
         onWillAcceptWithDetails: (details) => true,
-        onMove: (details) {
-          if (_isDraggingImage) {
-            _updateLetterCaretFromPointer(details.offset);
-          }
-        },
         onAcceptWithDetails: (details) {
           HapticFeedback.mediumImpact();
           if (_hoveredTextItemId != null && _hoveredCharIndex != null) {
@@ -1985,6 +2018,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           LongPressDraggable<String>(
             data: item.id,
             delay: const Duration(milliseconds: 150),
+            dragAnchorStrategy: pointerDragAnchorStrategy,
             onDragStarted: () {
               HapticFeedback.lightImpact();
               setState(() {
