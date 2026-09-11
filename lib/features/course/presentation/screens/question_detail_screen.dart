@@ -1021,16 +1021,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         _unfocusAllNotes();
         FocusScope.of(context).unfocus();
         setState(() => _selectedImageId = null);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Image pasted into Notebook!'),
-              backgroundColor: Colors.white24,
-              duration: Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
+        HapticFeedback.lightImpact();
         return;
       }
     } catch (e) {
@@ -1046,16 +1037,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         _unfocusAllNotes();
         FocusScope.of(context).unfocus();
         setState(() => _selectedImageId = null);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Image pasted into Notebook!'),
-              backgroundColor: Colors.white24,
-              duration: Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
+        HapticFeedback.lightImpact();
         return;
       }
     } catch (e) {
@@ -1075,16 +1057,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               _unfocusAllNotes();
               FocusScope.of(context).unfocus();
               setState(() => _selectedImageId = null);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Image pasted into Notebook!'),
-                    backgroundColor: Colors.white24,
-                    duration: Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
+              HapticFeedback.lightImpact();
               return;
             }
           } else {
@@ -1096,16 +1069,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               _unfocusAllNotes();
               FocusScope.of(context).unfocus();
               setState(() => _selectedImageId = null);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Image pasted into Notebook!'),
-                    backgroundColor: Colors.white24,
-                    duration: Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
+              HapticFeedback.lightImpact();
               return;
             }
           }
@@ -1129,16 +1093,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           _unfocusAllNotes();
           FocusScope.of(context).unfocus();
           setState(() => _selectedImageId = null);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Image pasted into Notebook!'),
-                backgroundColor: Colors.white24,
-                duration: Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
+          HapticFeedback.lightImpact();
           return;
         }
       }
@@ -1154,16 +1109,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             _unfocusAllNotes();
             FocusScope.of(context).unfocus();
             setState(() => _selectedImageId = null);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Image pasted into Notebook!'),
-                  backgroundColor: Colors.white24,
-                  duration: Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
+            HapticFeedback.lightImpact();
             return;
           }
         } catch (e) {
@@ -1176,16 +1122,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       _unfocusAllNotes();
       FocusScope.of(context).unfocus();
       setState(() => _selectedImageId = null);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pasted and saved to Notebook!'),
-            backgroundColor: Colors.white24,
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      HapticFeedback.lightImpact();
       return;
     }
 
@@ -1211,16 +1148,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       _unfocusAllNotes();
       FocusScope.of(context).unfocus();
       setState(() => _selectedImageId = null);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Image added to Notebook!'),
-            backgroundColor: Colors.white24,
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      HapticFeedback.lightImpact();
     }
   }
 
@@ -1608,31 +1536,50 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       onWillAcceptWithDetails: (details) => true,
       builder: (context, candidateData, rejectedData) {
         final isHovered = candidateData.isNotEmpty;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-          height: isHovered ? 16 : 6,
-          margin: EdgeInsets.symmetric(vertical: isHovered ? 3 : 0),
-          child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 100),
-              height: isHovered ? 2.5 : 0.0,
-              width: isHovered ? double.infinity : 0.0,
-              decoration: BoxDecoration(
-                color: isHovered ? Colors.white : Colors.transparent,
-                borderRadius: BorderRadius.circular(2),
-                boxShadow: isHovered
-                    ? [
-                        BoxShadow(
-                          color: Colors.white.withOpacity(0.8),
-                          blurRadius: 6,
-                          spreadRadius: 1,
+        return Container(
+          height: isHovered ? 22 : 8,
+          width: double.infinity,
+          alignment: Alignment.center,
+          color: Colors.transparent,
+          child: isHovered
+              ? Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        height: 2.5,
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.white.withOpacity(0.8),
+                              blurRadius: 6,
+                              spreadRadius: 1,
+                            ),
+                          ],
                         ),
-                      ]
-                    : null,
-              ),
-            ),
-          ),
+                      ),
+                    ),
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                )
+              : const SizedBox.shrink(),
         );
       },
       onAcceptWithDetails: (details) {
@@ -1653,18 +1600,55 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           onAccept: (data) => _moveOrInsertImageBetweenLines(item.id, 0, question, data),
         ),
         for (int l = 0; l < lines.length; l++) ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-            child: Text(
-              lines[l].isEmpty ? ' ' : lines[l],
-              style: GoogleFonts.inter(
-                fontSize: 15,
-                fontWeight: FontWeight.w400,
-                color: AppTheme.textPrimary,
-                height: 1.6,
-              ),
-            ),
+          DragTarget<Object>(
+            onWillAcceptWithDetails: (details) => true,
+            onAcceptWithDetails: (details) {
+              HapticFeedback.mediumImpact();
+              _moveOrInsertImageBetweenLines(item.id, l + 1, question, details.data);
+            },
+            builder: (context, candidateData, rejectedData) {
+              final isHovered = candidateData.isNotEmpty;
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                decoration: isHovered
+                    ? BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(6),
+                      )
+                    : null,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      lines[l].isEmpty ? ' ' : lines[l],
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w400,
+                        color: AppTheme.textPrimary,
+                        height: 1.6,
+                      ),
+                    ),
+                    if (isHovered)
+                      Container(
+                        height: 2.5,
+                        margin: const EdgeInsets.only(top: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.white.withOpacity(0.8),
+                              blurRadius: 6,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
           _buildDropInsertionLine(
             onAccept: (data) => _moveOrInsertImageBetweenLines(item.id, l + 1, question, data),
@@ -1825,7 +1809,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             feedback: Material(
               color: Colors.transparent,
               child: Opacity(
-                opacity: 0.85,
+                opacity: 0.65,
                 child: Container(
                   width: 220,
                   decoration: BoxDecoration(
@@ -1845,7 +1829,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               ),
             ),
             childWhenDragging: Opacity(
-              opacity: 0.25,
+              opacity: 0.15,
               child: imageCard,
             ),
             child: GestureDetector(
