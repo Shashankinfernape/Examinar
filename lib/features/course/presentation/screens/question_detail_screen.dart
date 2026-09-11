@@ -439,88 +439,157 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                       const SizedBox(height: 16),
 
                       // 5. ANSWER RESOURCES (ATTACHMENTS)
-                      Stack(
-                        children: [
-                          _buildOneUICard(
-                            title: 'Answer Resources',
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (question.images != null && question.images!.isNotEmpty)
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: AppTheme.urgentColor, size: 24),
-                                onPressed: () async {
-                                  final repo = await ref.read(questionRepositoryProvider.future);
-                                  await repo.isar.writeTxn(() async {
-                                    final q = await repo.isar.questions.get(question.id);
-                                    if (q != null) {
-                                      q.images = [];
-                                      await repo.isar.questions.put(q);
-                                    }
-                                  });
-                                },
-                              ),
-                            IconButton(
-                              icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white, size: 24),
-                              onPressed: () => _showAttachmentOptions(context, question),
-                            ),
-                          ],
-                        ),
-                        child: GestureDetector(
-                          onDoubleTap: () => _showAttachmentOptions(context, question),
-                          child: Column(
+                      DragTarget<Object>(
+                        onWillAcceptWithDetails: (details) => true,
+                        onAcceptWithDetails: (details) async {
+                          HapticFeedback.mediumImpact();
+                          final data = details.data;
+                          String? imagePath;
+                          if (data is String) {
+                            if (io.File(data).existsSync()) {
+                              imagePath = data;
+                            } else {
+                              final match = _noteItems.firstWhere(
+                                (it) => it.id == data,
+                                orElse: () => NoteTextItem(id: '', initialText: ''),
+                              );
+                              if (match is NoteImageItem) {
+                                imagePath = match.imagePath;
+                              }
+                            }
+                          }
+                          if (imagePath != null) {
+                            final repo = await ref.read(questionRepositoryProvider.future);
+                            await repo.isar.writeTxn(() async {
+                              final q = await repo.isar.questions.get(question.id);
+                              if (q != null) {
+                                final images = List<String>.from(q.images ?? []);
+                                if (!images.contains(imagePath)) {
+                                  images.add(imagePath!);
+                                  q.images = images;
+                                  await repo.isar.collection<Question>().put(q);
+                                }
+                              }
+                            });
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Image added to Answer Resources!'),
+                                  backgroundColor: Colors.white24,
+                                  duration: Duration(seconds: 2),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                            setState(() {});
+                          }
+                        },
+                        builder: (context, candidateData, rejectedData) {
+                          final isHovered = candidateData.isNotEmpty;
+                          return Stack(
                             children: [
-                              if (question.images == null || question.images!.isEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.all(32.0),
+                              _buildOneUICard(
+                                title: 'Answer Resources',
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    TextButton.icon(
+                                      onPressed: () => _pasteImage(question),
+                                      icon: const Icon(Icons.content_paste_rounded, size: 13, color: Colors.white),
+                                      label: const Text('PASTE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
+                                      style: TextButton.styleFrom(
+                                        backgroundColor: Colors.white.withOpacity(0.08),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                        minimumSize: const Size(0, 30),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white, size: 22),
+                                      onPressed: () => _showAttachmentOptions(context, question),
+                                      tooltip: 'Add Asset',
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
+                                    ),
+                                    if (question.images != null && question.images!.isNotEmpty) ...[
+                                      const SizedBox(width: 2),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, color: AppTheme.urgentColor, size: 22),
+                                        onPressed: () async {
+                                          final repo = await ref.read(questionRepositoryProvider.future);
+                                          await repo.isar.writeTxn(() async {
+                                            final q = await repo.isar.questions.get(question.id);
+                                            if (q != null) {
+                                              q.images = [];
+                                              await repo.isar.collection<Question>().put(q);
+                                            }
+                                          });
+                                        },
+                                        tooltip: 'Delete all assets',
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                child: GestureDetector(
+                                  onDoubleTap: () => _showAttachmentOptions(context, question),
                                   child: Column(
                                     children: [
-                                      Icon(Icons.folder_open_outlined, size: 48, color: AppTheme.textSecondary.withOpacity(0.1)),
-                                      const SizedBox(height: 12),
-                                      const Text('No assets attached. Double tap to add.', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontSize: 14)),
+                                      if (question.images == null || question.images!.isEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.all(32.0),
+                                          child: Column(
+                                            children: [
+                                              Icon(Icons.folder_open_outlined, size: 48, color: AppTheme.textSecondary.withOpacity(0.1)),
+                                              const SizedBox(height: 12),
+                                              const Text('No assets attached. Tap PASTE or double tap to add.', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontSize: 14)),
+                                            ],
+                                          ),
+                                        )
+                                      else
+                                        ListView.builder(
+                                          shrinkWrap: true,
+                                          physics: const NeverScrollableScrollPhysics(),
+                                          itemCount: question.images!.length,
+                                          itemBuilder: (context, index) {
+                                            final path = question.images![index];
+                                            return Padding(
+                                              key: ValueKey(path),
+                                              padding: const EdgeInsets.only(bottom: 16),
+                                              child: _buildAssetTile(question, path, index),
+                                            );
+                                          },
+                                        ),
                                     ],
                                   ),
-                                )
-                              else
-                                ListView.builder(
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  itemCount: question.images!.length,
-                                  itemBuilder: (context, index) {
-                                    final path = question.images![index];
-                                    return Padding(
-                                      key: ValueKey(path),
-                                      padding: const EdgeInsets.only(bottom: 16),
-                                      child: _buildAssetTile(question, path, index),
-                                    );
-                                  },
+                                ),
+                              ),
+                              if (isHovered || _isDragging)
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1E1E1E).withOpacity(0.92),
+                                      borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+                                      border: Border.all(color: Colors.white, width: 2),
+                                    ),
+                                    child: const Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.file_download_outlined, size: 40, color: Colors.white),
+                                          SizedBox(height: 8),
+                                          Text('Drop Image into Answer Resources', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 ),
                             ],
-                          ),
-                        ),
+                          );
+                        },
                       ),
-                      if (_isDragging)
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: AppTheme.sidebarSurface.withOpacity(0.9),
-                              borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-                              border: Border.all(color: AppTheme.samsungBlue, width: 2),
-                            ),
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: const [
-                                  Icon(Icons.file_download, size: 48, color: AppTheme.samsungBlue),
-                                  SizedBox(height: 8),
-                                  Text('Drop files to attach', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
 
                       const SizedBox(height: 150),
                     ]),
@@ -564,41 +633,89 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   }
 
   Widget _buildAssetTile(Question question, String path, int index) {
+    final imageCard = Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Image.file(
+        io.File(path), 
+        fit: BoxFit.fitWidth,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            height: 200, 
+            color: AppTheme.selectedTile, 
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.broken_image_outlined, size: 32, color: Colors.white54),
+                SizedBox(height: 8),
+                Text('Image not found on this device', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
     return Stack(
       children: [
-        GestureDetector(
-          onTap: () => _openFullscreenImage(context, path),
-          onLongPress: () => _showUniversalImageSheet(
-            context: context,
-            imagePath: path,
-            question: question,
-            isFromNotebook: false,
+        LongPressDraggable<String>(
+          data: path,
+          delay: const Duration(milliseconds: 250),
+          onDragStarted: () {
+            HapticFeedback.lightImpact();
+            setState(() {
+              _isDraggingImage = true;
+            });
+          },
+          onDragEnd: (_) {
+            setState(() {
+              _isDraggingImage = false;
+            });
+          },
+          onDraggableCanceled: (_, __) {
+            setState(() {
+              _isDraggingImage = false;
+            });
+          },
+          feedback: Material(
+            color: Colors.transparent,
+            child: Opacity(
+              opacity: 0.85,
+              child: Container(
+                width: 220,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 16,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Image.file(io.File(path), fit: BoxFit.fitWidth),
+              ),
+            ),
           ),
-          child: Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.05)),
+          childWhenDragging: Opacity(
+            opacity: 0.25,
+            child: imageCard,
+          ),
+          child: GestureDetector(
+            onTap: () => _openFullscreenImage(context, path),
+            onLongPress: () => _showUniversalImageSheet(
+              context: context,
+              imagePath: path,
+              question: question,
+              isFromNotebook: false,
             ),
-            clipBehavior: Clip.antiAlias,
-            child: Image.file(
-              io.File(path), 
-              fit: BoxFit.fitWidth,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  height: 200, 
-                  color: AppTheme.selectedTile, 
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.broken_image_outlined, size: 32, color: Colors.white54),
-                      SizedBox(height: 8),
-                      Text('Image not found on this device', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                    ],
-                  ),
-                );
-              },
-            ),
+            child: imageCard,
           ),
         ),
         Positioned(
@@ -1356,13 +1473,25 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     setState(() {});
   }
 
-  void _moveImageBetweenLines(String textItemId, int lineIndex, Question question) {
-    if (_draggedImageId == null) return;
+  void _moveOrInsertImageBetweenLines(String textItemId, int lineIndex, Question question, dynamic dragData) {
+    String? imagePath;
+    String? draggedId;
 
-    final imageIndex = _noteItems.indexWhere((it) => it.id == _draggedImageId);
+    if (dragData is String) {
+      final existingIndex = _noteItems.indexWhere((it) => it.id == dragData);
+      if (existingIndex != -1) {
+        draggedId = dragData;
+      } else if (io.File(dragData).existsSync()) {
+        imagePath = dragData;
+      }
+    }
+
+    if (draggedId == null && imagePath == null && _draggedImageId != null) {
+      draggedId = _draggedImageId;
+    }
+
     final targetTextIndex = _noteItems.indexWhere((it) => it.id == textItemId);
-
-    if (imageIndex == -1 || targetTextIndex == -1) {
+    if (targetTextIndex == -1) {
       setState(() {
         _isDraggingImage = false;
         _draggedImageId = null;
@@ -1373,20 +1502,29 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     final targetTextItem = _noteItems[targetTextIndex] as NoteTextItem;
     final lines = targetTextItem.controller.text.split('\n');
 
-    final img = _noteItems.removeAt(imageIndex);
+    NoteImageItem imageToPlace;
+    if (draggedId != null) {
+      final imgIdx = _noteItems.indexWhere((it) => it.id == draggedId);
+      if (imgIdx == -1) return;
+      imageToPlace = _noteItems.removeAt(imgIdx) as NoteImageItem;
+    } else if (imagePath != null) {
+      imageToPlace = NoteImageItem(
+        id: const Uuid().v4(),
+        imagePath: imagePath,
+        widthPercent: 100,
+      );
+    } else {
+      return;
+    }
 
-    // Re-find targetTextIndex after removal
     final curTargetIndex = _noteItems.indexOf(targetTextItem);
     if (curTargetIndex == -1) {
-      _noteItems.add(img);
+      _noteItems.add(imageToPlace);
     } else if (lineIndex <= 0) {
-      // Place before the text item
-      _noteItems.insert(curTargetIndex, img);
+      _noteItems.insert(curTargetIndex, imageToPlace);
     } else if (lineIndex >= lines.length) {
-      // Place after the text item
-      _noteItems.insert(curTargetIndex + 1, img);
+      _noteItems.insert(curTargetIndex + 1, imageToPlace);
     } else {
-      // Place between lines: split the text item into two
       final linesBefore = lines.sublist(0, lineIndex).join('\n');
       final linesAfter = lines.sublist(lineIndex).join('\n');
 
@@ -1404,7 +1542,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         });
       });
 
-      _noteItems.insert(curTargetIndex + 1, img);
+      _noteItems.insert(curTargetIndex + 1, imageToPlace);
       _noteItems.insert(curTargetIndex + 2, afterTextItem);
     }
 
@@ -1419,20 +1557,40 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     setState(() {});
   }
 
-  void _moveImageToItemIndex(int targetIndex, Question question) {
-    if (_draggedImageId == null) return;
-    final imageIndex = _noteItems.indexWhere((it) => it.id == _draggedImageId);
-    if (imageIndex == -1) {
-      setState(() {
-        _isDraggingImage = false;
-        _draggedImageId = null;
-      });
+  void _moveOrInsertImageToItemIndex(int targetIndex, Question question, dynamic dragData) {
+    String? imagePath;
+    String? draggedId;
+
+    if (dragData is String) {
+      final existingIndex = _noteItems.indexWhere((it) => it.id == dragData);
+      if (existingIndex != -1) {
+        draggedId = dragData;
+      } else if (io.File(dragData).existsSync()) {
+        imagePath = dragData;
+      }
+    }
+
+    if (draggedId == null && imagePath == null && _draggedImageId != null) {
+      draggedId = _draggedImageId;
+    }
+
+    NoteImageItem imageToPlace;
+    if (draggedId != null) {
+      final imgIdx = _noteItems.indexWhere((it) => it.id == draggedId);
+      if (imgIdx == -1) return;
+      imageToPlace = _noteItems.removeAt(imgIdx) as NoteImageItem;
+    } else if (imagePath != null) {
+      imageToPlace = NoteImageItem(
+        id: const Uuid().v4(),
+        imagePath: imagePath,
+        widthPercent: 100,
+      );
+    } else {
       return;
     }
 
-    final img = _noteItems.removeAt(imageIndex);
     final dest = targetIndex.clamp(0, _noteItems.length);
-    _noteItems.insert(dest, img);
+    _noteItems.insert(dest, imageToPlace);
 
     _consolidateAdjacentTextItems();
     if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
@@ -1445,55 +1603,41 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     setState(() {});
   }
 
-  Widget _buildDropTargetSlot({required VoidCallback onAccept, String label = 'PLACE IMAGE HERE'}) {
-    return DragTarget<String>(
+  Widget _buildDropInsertionLine({required void Function(Object data) onAccept}) {
+    return DragTarget<Object>(
       onWillAcceptWithDetails: (details) => true,
       builder: (context, candidateData, rejectedData) {
         final isHovered = candidateData.isNotEmpty;
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: const Duration(milliseconds: 100),
           curve: Curves.easeOut,
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: EdgeInsets.symmetric(vertical: isHovered ? 12 : 6, horizontal: 8),
-          decoration: BoxDecoration(
-            color: isHovered ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.04),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isHovered ? Colors.white : Colors.white24,
-              width: isHovered ? 1.5 : 0.8,
-            ),
-          ),
+          height: isHovered ? 16 : 6,
+          margin: EdgeInsets.symmetric(vertical: isHovered ? 3 : 0),
           child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.add_circle_outline_rounded,
-                  size: isHovered ? 14 : 11,
-                  color: isHovered ? Colors.white : Colors.white54,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    style: TextStyle(
-                      color: isHovered ? Colors.white : Colors.white54,
-                      fontSize: isHovered ? 11 : 9,
-                      fontWeight: isHovered ? FontWeight.w700 : FontWeight.w500,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                ),
-              ],
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 100),
+              height: isHovered ? 2.5 : 0.0,
+              width: isHovered ? double.infinity : 0.0,
+              decoration: BoxDecoration(
+                color: isHovered ? Colors.white : Colors.transparent,
+                borderRadius: BorderRadius.circular(2),
+                boxShadow: isHovered
+                    ? [
+                        BoxShadow(
+                          color: Colors.white.withOpacity(0.8),
+                          blurRadius: 6,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : null,
+              ),
             ),
           ),
         );
       },
       onAcceptWithDetails: (details) {
         HapticFeedback.mediumImpact();
-        onAccept();
+        onAccept(details.data);
       },
     );
   }
@@ -1505,9 +1649,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildDropTargetSlot(
-          onAccept: () => _moveImageBetweenLines(item.id, 0, question),
-          label: 'DROP BEFORE LINE 1',
+        _buildDropInsertionLine(
+          onAccept: (data) => _moveOrInsertImageBetweenLines(item.id, 0, question, data),
         ),
         for (int l = 0; l < lines.length; l++) ...[
           Container(
@@ -1518,14 +1661,13 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               style: GoogleFonts.inter(
                 fontSize: 15,
                 fontWeight: FontWeight.w400,
-                color: AppTheme.textPrimary.withOpacity(0.85),
+                color: AppTheme.textPrimary,
                 height: 1.6,
               ),
             ),
           ),
-          _buildDropTargetSlot(
-            onAccept: () => _moveImageBetweenLines(item.id, l + 1, question),
-            label: 'DROP AFTER: "${lines[l].length > 20 ? '${lines[l].substring(0, 20)}...' : lines[l]}"',
+          _buildDropInsertionLine(
+            onAccept: (data) => _moveOrInsertImageBetweenLines(item.id, l + 1, question, data),
           ),
         ],
       ],
@@ -1543,29 +1685,10 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_isDraggingImage) ...[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.touch_app_rounded, size: 14, color: Colors.white70),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Drop into any slot between lines to place image',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
+          if (_isDraggingImage)
+            _buildDropInsertionLine(
+              onAccept: (data) => _moveOrInsertImageToItemIndex(0, question, data),
             ),
-            _buildDropTargetSlot(
-              onAccept: () => _moveImageToItemIndex(0, question),
-              label: 'DROP AT TOP OF NOTEBOOK',
-            ),
-          ],
           for (int i = 0; i < _noteItems.length; i++) ...[
             if (_noteItems[i] is NoteTextItem) ...[
               if (_isDraggingImage)
@@ -1577,9 +1700,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             ],
           ],
           if (_isDraggingImage)
-            _buildDropTargetSlot(
-              onAccept: () => _moveImageToItemIndex(_noteItems.length, question),
-              label: 'DROP AT BOTTOM OF NOTEBOOK',
+            _buildDropInsertionLine(
+              onAccept: (data) => _moveOrInsertImageToItemIndex(_noteItems.length, question, data),
             ),
         ],
       ),
@@ -1587,70 +1709,64 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   }
 
   Widget _buildNoteTextField(NoteTextItem item, Question question) {
-    return TextField(
-      key: ValueKey(item.id),
-      controller: item.controller,
-      focusNode: item.focusNode,
-      maxLines: null,
-      minLines: 1,
-      textInputAction: TextInputAction.newline,
-      contentInsertionConfiguration: ContentInsertionConfiguration(
-        allowedMimeTypes: const <String>['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
-        onContentInserted: (KeyboardInsertedContent value) async {
-          if (value.data != null && value.data!.isNotEmpty) {
-            final ext = value.mimeType.contains('png') ? 'png' : 'jpg';
-            final savedPath = await _saveFilePermanently(value.data!, ext);
-            _insertImageItemAtCursorOrEnd(savedPath, question);
-          } else if (value.uri.isNotEmpty) {
-            final bytes = await _readBytesFromNativeUri(value.uri);
-            if (bytes != null && bytes.isNotEmpty) {
-              final savedPath = await _saveFilePermanently(bytes, 'jpg');
-              _insertImageItemAtCursorOrEnd(savedPath, question);
-            }
-          }
-          _unfocusAllNotes();
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textSelectionTheme: const TextSelectionThemeData(
+          cursorColor: Colors.white,
+          selectionHandleColor: Colors.transparent, // Completely hides the water drop teardrop handle
+          selectionColor: Colors.white24,
+        ),
+      ),
+      child: TextField(
+        key: ValueKey(item.id),
+        controller: item.controller,
+        focusNode: item.focusNode,
+        cursorColor: Colors.white,
+        cursorWidth: 2.0,
+        cursorRadius: const Radius.circular(1.0),
+        maxLines: null,
+        minLines: 1,
+        textInputAction: TextInputAction.newline,
+        onEditingComplete: () {
+          item.focusNode.unfocus();
           FocusScope.of(context).unfocus();
+          _saveNotes(question, text: _serializeNotes());
         },
-      ),
-      onEditingComplete: () {
-        item.focusNode.unfocus();
-        FocusScope.of(context).unfocus();
-        _saveNotes(question, text: _serializeNotes());
-      },
-      contextMenuBuilder: (context, editableTextState) {
-        final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
-        final int pasteIndex = buttonItems.indexWhere((b) => b.type == ContextMenuButtonType.paste);
-        if (pasteIndex != -1) {
-          buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
-            onPressed: () {
-              _pasteIntoNotebook(question);
-            },
+        contextMenuBuilder: (context, editableTextState) {
+          final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
+          final int pasteIndex = buttonItems.indexWhere((b) => b.type == ContextMenuButtonType.paste);
+          if (pasteIndex != -1) {
+            buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
+              onPressed: () {
+                _pasteIntoNotebook(question);
+              },
+            );
+          }
+          return AdaptiveTextSelectionToolbar.buttonItems(
+            anchors: editableTextState.contextMenuAnchors,
+            buttonItems: buttonItems,
           );
-        }
-        return AdaptiveTextSelectionToolbar.buttonItems(
-          anchors: editableTextState.contextMenuAnchors,
-          buttonItems: buttonItems,
-        );
-      },
-      style: GoogleFonts.inter(
-        fontSize: 15,
-        fontWeight: FontWeight.w400,
-        color: AppTheme.textPrimary,
-        height: 1.6,
-      ),
-      decoration: InputDecoration(
-        hintText: _noteItems.length <= 1 ? 'Paste or type your notes here...' : 'Continue notes here...',
-        hintStyle: const TextStyle(color: Colors.white38),
-        border: InputBorder.none,
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 4),
+        },
+        style: GoogleFonts.inter(
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          color: AppTheme.textPrimary,
+          height: 1.6,
+        ),
+        decoration: InputDecoration(
+          hintText: _noteItems.length <= 1 ? 'Paste or type your notes here...' : 'Continue notes here...',
+          hintStyle: const TextStyle(color: Colors.white38),
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+        ),
       ),
     );
   }
 
   Widget _buildNoteImageWidget(NoteImageItem item, int index, Question question) {
     final isSelected = _selectedImageId == item.id;
-    final factor = (item.widthPercent / 100.0).clamp(0.25, 1.0);
+    final factor = (item.widthPercent / 100.0).clamp(0.15, 1.0);
 
     final imageCard = FractionallySizedBox(
       widthFactor: factor,
@@ -1761,98 +1877,98 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   Widget _buildInlineImageControls(NoteImageItem item, int index, Question question) {
     return Container(
       margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.white24, width: 1.0),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ...([25, 50, 75, 100].map((pct) {
-            final isCur = item.widthPercent == pct;
-            return GestureDetector(
-              onTap: () => _updateNoteImageWidth(item.id, pct, question),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isCur ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '$pct%',
-                  style: TextStyle(
-                    color: isCur ? Colors.black : Colors.white70,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+          const Padding(
+            padding: EdgeInsets.only(left: 4, right: 2),
+            child: Icon(Icons.photo_size_select_large_rounded, size: 16, color: Colors.white70),
+          ),
+          SizedBox(
+            width: 120,
+            height: 32,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 6.0,
+                activeTrackColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+                thumbColor: Colors.white,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 2),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                overlayColor: Colors.white10,
               ),
-            );
-          })),
-          const SizedBox(width: 6),
+              child: Slider(
+                value: item.widthPercent.toDouble().clamp(15.0, 100.0),
+                min: 15.0,
+                max: 100.0,
+                onChanged: (val) {
+                  final newPct = val.round();
+                  if ((newPct - item.widthPercent).abs() >= 1) {
+                    if (newPct % 25 == 0) HapticFeedback.selectionClick();
+                    setState(() {
+                      item.widthPercent = newPct;
+                    });
+                  }
+                },
+                onChangeEnd: (val) {
+                  _saveNotes(question, text: _serializeNotes());
+                },
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 38,
+            child: Text(
+              '${item.widthPercent}%',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.3,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(width: 4),
           Container(width: 1, height: 16, color: Colors.white24),
           const SizedBox(width: 4),
-          Draggable<String>(
-            data: item.id,
-            onDragStarted: () {
+          IconButton(
+            icon: const Icon(Icons.folder_shared_outlined, size: 16, color: Colors.white70),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            tooltip: 'Copy to Answer Resources',
+            onPressed: () async {
+              final repo = await ref.read(questionRepositoryProvider.future);
+              await repo.isar.writeTxn(() async {
+                final q = await repo.isar.questions.get(question.id);
+                if (q != null) {
+                  final images = List<String>.from(q.images ?? []);
+                  if (!images.contains(item.imagePath)) {
+                    images.add(item.imagePath);
+                    q.images = images;
+                    await repo.isar.collection<Question>().put(q);
+                  }
+                }
+              });
               HapticFeedback.lightImpact();
-              setState(() {
-                _isDraggingImage = true;
-                _draggedImageId = item.id;
-              });
-            },
-            onDragEnd: (_) {
-              setState(() {
-                _isDraggingImage = false;
-                _draggedImageId = null;
-              });
-            },
-            onDraggableCanceled: (_, __) {
-              setState(() {
-                _isDraggingImage = false;
-                _draggedImageId = null;
-              });
-            },
-            feedback: Material(
-              color: Colors.transparent,
-              child: Opacity(
-                opacity: 0.85,
-                child: Container(
-                  width: 220,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white, width: 2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.5),
-                        blurRadius: 16,
-                        spreadRadius: 4,
-                      ),
-                    ],
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Image copied to Answer Resources!'),
+                    backgroundColor: Colors.white24,
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
                   ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Image.file(io.File(item.imagePath), fit: BoxFit.fitWidth),
-                ),
-              ),
-            ),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white12,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.drag_indicator_rounded, size: 14, color: Colors.white),
-                  SizedBox(width: 2),
-                  Text('DRAG', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
+                );
+              }
+              setState(() {});
+            },
           ),
           IconButton(
             icon: const Icon(Icons.arrow_upward_rounded, size: 16, color: Colors.white),
@@ -2353,56 +2469,119 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     }
   }
 
-  void _pasteImage(Question question) async {
+  Future<void> _pasteImage(Question question) async {
     final repo = await ref.read(questionRepositoryProvider.future);
-    
-    // 1. Try pasting raw image bytes (e.g., from Snipping Tool)
-    final imageBytes = await Pasteboard.image;
-    if (imageBytes != null && imageBytes.isNotEmpty) {
-      final savedPath = await _saveFilePermanently(imageBytes, 'jpg');
+
+    Future<void> saveAndAddImage(dynamic bytes, String ext) async {
+      final savedPath = await _saveFilePermanently(bytes as List<int>, ext);
       await repo.isar.writeTxn(() async {
         final q = await repo.isar.questions.get(question.id);
         if (q != null) {
           final images = List<String>.from(q.images ?? []);
-          images.add(savedPath);
-          q.images = images;
-          await repo.isar.questions.put(q);
+          if (!images.contains(savedPath)) {
+            images.add(savedPath);
+            q.images = images;
+            await repo.isar.collection<Question>().put(q);
+          }
         }
       });
       HapticFeedback.vibrate();
-      return;
-    }
-    
-    // 2. Try pasting copied files (e.g., from Windows Explorer)
-    final files = await Pasteboard.files();
-    if (files.isNotEmpty) {
-      final validPaths = <String>[];
-      for (final p in files) {
-        final lower = p.toLowerCase();
-        if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
-          validPaths.add(p);
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Image pasted into Answer Resources!'),
+            backgroundColor: Colors.white24,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
-      
-      if (validPaths.isNotEmpty) {
-        final orderedPaths = io.Platform.isWindows ? validPaths.reversed.toList() : validPaths.toList();
-        await repo.isar.writeTxn(() async {
-          final q = await repo.isar.questions.get(question.id);
-          if (q != null) {
-            final images = List<String>.from(q.images ?? []);
-            images.addAll(orderedPaths);
-            q.images = images;
-            await repo.isar.questions.put(q);
-          }
-        });
-        HapticFeedback.vibrate();
+      setState(() {});
+    }
+
+    // 1. Try native Android ClipboardManager via MethodChannel (resolves Samsung content:// URIs directly)
+    try {
+      final nativeBytes = await _getNativeClipboardImage();
+      if (nativeBytes != null && nativeBytes.isNotEmpty) {
+        await saveAndAddImage(nativeBytes, 'jpg');
         return;
       }
+    } catch (e) {
+      debugPrint('Native clipboard error in _pasteImage: $e');
+    }
+
+    // 2. Try Pasteboard.image
+    try {
+      final imageBytes = await Pasteboard.image;
+      if (imageBytes != null && imageBytes.isNotEmpty) {
+        await saveAndAddImage(imageBytes, 'jpg');
+        return;
+      }
+    } catch (e) {
+      debugPrint('Pasteboard image check failed: $e');
+    }
+
+    // 3. Try Pasteboard.files()
+    try {
+      final files = await Pasteboard.files();
+      if (files.isNotEmpty) {
+        for (final p in files) {
+          if (p.startsWith('content://') || p.startsWith('file://')) {
+            final bytes = await _readBytesFromNativeUri(p);
+            if (bytes != null && bytes.isNotEmpty) {
+              await saveAndAddImage(bytes, 'jpg');
+              return;
+            }
+          }
+          final lower = p.toLowerCase();
+          if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
+            final f = io.File(p);
+            if (await f.exists()) {
+              final bytes = await f.readAsBytes();
+              final ext = lower.endsWith('.png') ? 'png' : 'jpg';
+              await saveAndAddImage(bytes, ext);
+              return;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Pasteboard files check failed: $e');
+    }
+
+    // 4. Try Clipboard plain text (check if it's a content:// or base64 image)
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      if (data != null && data.text != null) {
+        final text = data.text!.trim();
+        if (text.startsWith('content://') || text.startsWith('file://')) {
+          final bytes = await _readBytesFromNativeUri(text);
+          if (bytes != null && bytes.isNotEmpty) {
+            await saveAndAddImage(bytes, 'jpg');
+            return;
+          }
+        } else if (text.startsWith('data:image/') && text.contains('base64,')) {
+          final base64String = text.split('base64,').last;
+          final bytes = base64Decode(base64String);
+          if (bytes.isNotEmpty) {
+            final ext = text.contains('image/png') ? 'png' : 'jpg';
+            await saveAndAddImage(bytes, ext);
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Clipboard text image check failed: $e');
     }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No image or valid file found in clipboard')),
+        const SnackBar(
+          content: Text('No image found in clipboard'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
