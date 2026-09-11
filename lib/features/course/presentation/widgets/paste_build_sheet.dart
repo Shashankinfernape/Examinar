@@ -575,6 +575,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                             _isProceedProcessing = false; // Force-clear proceed spinner
                             _attachments.clear();
                             _textController.clear();
+                            _gptResponseController.clear();
                           });
                         },
                         child: const Text('Reset Page', style: TextStyle(color: Colors.white38, fontSize: 12)),
@@ -585,10 +586,40 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                 const SizedBox(height: 16),
 
                 // GPT Response paste field
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('ChatGPT Output', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        backgroundColor: Colors.blueAccent.withValues(alpha: 0.1),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () async {
+                        final data = await Clipboard.getData(Clipboard.kTextPlain);
+                        if (data != null && data.text != null && data.text!.isNotEmpty) {
+                          setState(() {
+                            _gptResponseController.text = data.text!;
+                          });
+                        } else {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Clipboard is empty!'), backgroundColor: Colors.orange),
+                            );
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.content_paste, size: 16, color: Colors.blueAccent),
+                      label: const Text('PASTE', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 TextField(
                   controller: _gptResponseController,
-                  maxLines: 8,
-                  minLines: 5,
+                  maxLines: 4,
+                  minLines: 3,
                   style: const TextStyle(color: Colors.white, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'Paste ChatGPT\'s generated question paper here...',
@@ -635,7 +666,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 48),
               ],
             ],
           ),
