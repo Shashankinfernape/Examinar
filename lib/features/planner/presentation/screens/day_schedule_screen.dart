@@ -1171,21 +1171,36 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                   20, 12, 20, MediaQuery.of(context).padding.bottom + 16),
               child: GestureDetector(
                 onTap: _save,
-                child: Container(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
-                    color: AppTheme.samsungBlue.withOpacity(0.12),
+                    color: _selectedIds.isEmpty
+                        ? const Color(0xFF3E82F7).withOpacity(0.12)
+                        : const Color(0xFF3E82F7),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.samsungBlue.withOpacity(0.4), width: 1.5),
+                    border: Border.all(
+                      color: const Color(0xFF3E82F7).withOpacity(_selectedIds.isEmpty ? 0.4 : 0.8),
+                      width: 1.5,
+                    ),
+                    boxShadow: _selectedIds.isNotEmpty
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF3E82F7).withOpacity(0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ]
+                        : null,
                   ),
                   child: Center(
                     child: Text(
                       _selectedIds.isEmpty
                           ? 'SAVE SESSION'
                           : 'SAVE  ·  ${_selectedIds.length} TASK${_selectedIds.length == 1 ? '' : 'S'}',
-                      style: const TextStyle(
-                          color: AppTheme.samsungBlue,
+                      style: TextStyle(
+                          color: _selectedIds.isEmpty ? const Color(0xFF3E82F7) : Colors.white,
                           fontWeight: FontWeight.w800,
                           fontSize: 13,
                           letterSpacing: 2.0),
@@ -1262,70 +1277,115 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
       itemBuilder: (_, i) {
         final q = _questions[i];
         final sel = _selectedIds.contains(q.id);
+        const accentBlue = Color(0xFF3E82F7);
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
-          child: Material(
-            color: sel ? AppTheme.samsungBlue.withOpacity(0.08) : Colors.transparent,
-            elevation: 0,
-            shadowColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(
-                color: sel ? AppTheme.samsungBlue.withOpacity(0.4) : Colors.white.withOpacity(0.05),
-                width: 1.0,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            decoration: BoxDecoration(
+              color: sel ? accentBlue.withOpacity(0.10) : Colors.white.withOpacity(0.03),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: sel ? accentBlue.withOpacity(0.45) : Colors.white.withOpacity(0.06),
+                width: sel ? 1.2 : 1.0,
               ),
             ),
-            child: InkWell(
-              onTap: () => setState(() =>
-                  sel ? _selectedIds.remove(q.id) : _selectedIds.add(q.id)),
-              borderRadius: BorderRadius.circular(10),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: sel ? AppTheme.samsungBlue : Colors.transparent,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: sel ? AppTheme.samsungBlue : AppTheme.textSecondary.withOpacity(0.5),
-                          width: 1.5,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => setState(() =>
+                    sel ? _selectedIds.remove(q.id) : _selectedIds.add(q.id)),
+                borderRadius: BorderRadius.circular(14),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                  child: Row(
+                    children: [
+                      // Modern One UI Selection Button
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: sel ? accentBlue : Colors.white.withOpacity(0.04),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: sel ? accentBlue : Colors.white24,
+                            width: 1.5,
+                          ),
+                          boxShadow: sel
+                              ? [
+                                  BoxShadow(
+                                    color: accentBlue.withOpacity(0.4),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 1),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Center(
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 150),
+                            opacity: sel ? 1.0 : 0.0,
+                            child: const Icon(
+                              Icons.check_rounded,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
                       ),
-                      child: Icon(Icons.check, size: 10, color: sel ? Colors.white : Colors.transparent),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(q.title.replaceAll(RegExp(r'[★☆⭐🌟\*]'), '').split('\n').first.trim(),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          q.title.replaceAll(RegExp(r'[★☆⭐🌟\*]'), '').split('\n').first.trim(),
                           style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: sel ? FontWeight.w600 : FontWeight.w500,
-                              color: AppTheme.textPrimary)),
-                    ),
-                if (q.status == QuestionStatus.completed)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppTheme.completedColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text('DONE',
-                        style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.completedColor,
-                            letterSpacing: 0.8)),
+                            fontSize: 14,
+                            fontWeight: sel ? FontWeight.w600 : FontWeight.w500,
+                            color: sel ? Colors.white : AppTheme.textPrimary.withOpacity(0.85),
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      if (q.difficulty > 0) ...[
+                        const SizedBox(width: 8),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: List.generate(
+                            q.difficulty.clamp(1, 5),
+                            (_) => const Icon(Icons.star_rounded, size: 13, color: Color(0xFFFDD663)),
+                          ),
+                        ),
+                      ],
+                      if (q.status == QuestionStatus.completed) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                          decoration: BoxDecoration(
+                            color: AppTheme.completedColor.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: AppTheme.completedColor.withOpacity(0.3), width: 0.8),
+                          ),
+                          child: const Text(
+                            'DONE',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.completedColor,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
-  },
-);
   }
 }
 
