@@ -1047,6 +1047,61 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     }
   }
 
+  Future<Uint8List?> _getWindowsClipboardImage() async {
+    if (!io.Platform.isWindows) return null;
+    try {
+      final tempOut = '${io.Directory.systemTemp.path}\\examinar_clip_${DateTime.now().millisecondsSinceEpoch}.png';
+      final script = '''
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+\$img = [System.Windows.Forms.Clipboard]::GetImage()
+if (\$null -ne \$img) {
+  \$img.Save('$tempOut', [System.Drawing.Imaging.ImageFormat]::Png)
+  \$img.Dispose()
+  Write-Output 'IMAGE'
+  exit 0
+}
+\$files = [System.Windows.Forms.Clipboard]::GetFileDropList()
+if (\$files.Count -gt 0) {
+  Write-Output "FILE:\$(\$files[0])"
+  exit 0
+}
+Write-Output 'EMPTY'
+''';
+      final result = await io.Process.run(
+        'powershell',
+        ['-WindowStyle', 'Hidden', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      );
+      final stdout = (result.stdout as String?)?.trim() ?? '';
+      if (stdout.contains('IMAGE')) {
+        final f = io.File(tempOut);
+        if (await f.exists()) {
+          final bytes = await f.readAsBytes();
+          try { await f.delete(); } catch (_) {}
+          if (bytes.isNotEmpty) return bytes;
+        }
+      } else if (stdout.startsWith('FILE:')) {
+        final filePath = stdout.substring(5).trim();
+        final lower = filePath.toLowerCase();
+        if (lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.png') ||
+            lower.endsWith('.webp') ||
+            lower.endsWith('.bmp') ||
+            lower.endsWith('.gif')) {
+          final f = io.File(filePath);
+          if (await f.exists()) {
+            final bytes = await f.readAsBytes();
+            if (bytes.isNotEmpty) return bytes;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Windows clipboard extraction error: $e');
+    }
+    return null;
+  }
+
   void _ensureTrailingTextItem(Question question) {
     if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
       _createAndAddTextItem('', question);
@@ -1226,13 +1281,31 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         final savedPath = await _saveFilePermanently(bytesToSave, ext);
         _insertImageItemAtCursorOrEnd(savedPath, question);
         _unfocusAllNotes();
-        FocusScope.of(context).unfocus();
+        if (mounted) FocusScope.of(context).unfocus();
         setState(() => _selectedImageId = null);
         HapticFeedback.lightImpact();
         return;
       }
     } catch (e) {
       debugPrint('Pasteboard image check failed: $e');
+    }
+
+    // 2.5. Try native Windows clipboard image reader (handles Format32bppRgb, PNG, CF_BITMAP, etc.)
+    if (io.Platform.isWindows) {
+      try {
+        final winBytes = await _getWindowsClipboardImage();
+        if (winBytes != null && winBytes.isNotEmpty) {
+          final savedPath = await _saveFilePermanently(winBytes, 'png');
+          _insertImageItemAtCursorOrEnd(savedPath, question);
+          _unfocusAllNotes();
+          if (mounted) FocusScope.of(context).unfocus();
+          setState(() => _selectedImageId = null);
+          HapticFeedback.lightImpact();
+          return;
+        }
+      } catch (e) {
+        debugPrint('Windows clipboard check failed: $e');
+      }
     }
 
     // 3. Try Pasteboard.files()
@@ -3235,6 +3308,19 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       debugPrint('Pasteboard image check failed: $e');
     }
 
+    // 2.5. Try native Windows clipboard image reader (handles Format32bppRgb, PNG, CF_BITMAP, etc.)
+    if (io.Platform.isWindows) {
+      try {
+        final winBytes = await _getWindowsClipboardImage();
+        if (winBytes != null && winBytes.isNotEmpty) {
+          await saveAndAddImage(winBytes, 'png');
+          return;
+        }
+      } catch (e) {
+        debugPrint('Windows clipboard error in _pasteImage: $e');
+      }
+    }
+
     // 3. Try Pasteboard.files()
     try {
       final files = await Pasteboard.files();
@@ -3263,7 +3349,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       debugPrint('Pasteboard files check failed: $e');
     }
 
-    // 4. Try Clipboard plain text (check if it's a content:// or base64 image)
+    // 4. Try Clipboard plain text (check if it's a content://, file path, or base64 image)
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       if (data != null && data.text != null) {
@@ -3281,6 +3367,23 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             final ext = text.contains('image/png') ? 'png' : 'jpg';
             await saveAndAddImage(bytes, ext);
             return;
+          }
+        } else {
+          final cleanText = text.replaceAll('"', '').trim();
+          final lowerClean = cleanText.toLowerCase();
+          if (lowerClean.endsWith('.jpg') ||
+              lowerClean.endsWith('.jpeg') ||
+              lowerClean.endsWith('.png') ||
+              lowerClean.endsWith('.webp') ||
+              lowerClean.endsWith('.bmp') ||
+              lowerClean.endsWith('.gif')) {
+            final f = io.File(cleanText);
+            if (await f.exists()) {
+              final bytes = await f.readAsBytes();
+              final ext = lowerClean.split('.').last;
+              await saveAndAddImage(bytes, ext);
+              return;
+            }
           }
         }
       }
