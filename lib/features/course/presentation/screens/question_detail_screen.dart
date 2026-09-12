@@ -8,6 +8,8 @@ import '../../domain/models/course.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
+import 'package:super_clipboard/super_clipboard.dart' as sc;
+import 'package:http/http.dart' as http;
 import 'dart:io' as io;
 import 'dart:async';
 import 'dart:convert';
@@ -68,7 +70,6 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   final _questionController = TextEditingController();
   final _questionFocusNode = FocusNode();
   final _scrollController = ScrollController();
-  final GlobalKey _notebookKey = GlobalKey();
   final GlobalKey _resourcesKey = GlobalKey();
   final List<NoteItem> _noteItems = [];
   String? _selectedImageId;
@@ -79,6 +80,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   bool _hasInitializedQuestion = false;
   bool _isDraggingResources = false;
   bool _isDraggingNotebook = false;
+  bool _isIngestingImage = false;
   Timer? _debounce;
   Timer? _questionDebounce;
   Question? _currentQuestion;
@@ -188,10 +190,15 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
 
   Future<String> _saveFilePermanently(List<int> bytes, String extension) async {
     final docsDir = await getApplicationDocumentsDirectory();
-    final fileName = '${const Uuid().v4()}.$extension';
+    final cleanExt = extension.replaceAll('.', '').toLowerCase();
+    final fileName = '${const Uuid().v4()}.$cleanExt';
+    final dir = io.Directory(docsDir.path);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
     final savedFile = io.File('${docsDir.path}/$fileName');
     await savedFile.writeAsBytes(bytes);
-    return savedFile.path;
+    return savedFile.path.replaceAll('\\', '/');
   }
 
   Future<void> _askChatGPT(Question question) async {
@@ -492,229 +499,193 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   }
 
   Widget _buildAnswerResourcesSection(BuildContext context, Question question) {
-    Widget resourcesWidget = DropRegion(
-      formats: Formats.standardFormats,
-      onDropOver: (event) {
-        if (!_isDraggingResources && mounted) {
-          setState(() => _isDraggingResources = true);
-        }
-        return DropOperation.copy;
+    final innerResourcesCard = DragTarget<Object>(
+      key: _resourcesKey,
+      onWillAcceptWithDetails: (details) {
+        if (_draggedAssetPath != null) return false;
+        return true;
       },
-      onDropLeave: (event) {
-        if (_isDraggingResources && mounted) {
-          setState(() => _isDraggingResources = false);
-        }
-      },
-      onPerformDrop: (event) async {
-        if (mounted) setState(() => _isDraggingResources = false);
+      onAcceptWithDetails: (details) async {
         HapticFeedback.mediumImpact();
-        final docsDir = await getApplicationDocumentsDirectory();
-        for (final item in event.session.items) {
-          final reader = item.dataReader;
-          if (reader != null) {
-            reader.getFile(null, (file) async {
-              try {
-                final bytes = await file.readAll();
-                if (bytes.isNotEmpty) {
-                  String ext = 'jpg';
-                  final lowerName = (file.fileName ?? '').toLowerCase();
-                  if (lowerName.endsWith('.png')) {
-                    ext = 'png';
-                  } else if (lowerName.endsWith('.webp')) {
-                    ext = 'webp';
-                  } else if (lowerName.endsWith('.jpeg')) {
-                    ext = 'jpeg';
-                  }
-                  final destPath = '${docsDir.path}/${const Uuid().v4()}.$ext';
-                  await io.File(destPath).writeAsBytes(bytes);
-
-                  final repo = await ref.read(questionRepositoryProvider.future);
-                  await repo.isar.writeTxn(() async {
-                    final q = await repo.isar.questions.get(question.id);
-                    if (q != null) {
-                      final images = List<String>.from(q.images ?? []);
-                      if (!images.contains(destPath)) {
-                        images.add(destPath);
-                        q.images = images;
-                        await repo.isar.collection<Question>().put(q);
-                      }
-                    }
-                  });
-                  if (mounted) setState(() {});
-                }
-              } catch (e) {
-                debugPrint('Failed to save dropped file from super_drag_and_drop: $e');
-              }
-            });
-          }
-        }
-      },
-      child: DragTarget<Object>(
-        key: _resourcesKey,
-        onWillAcceptWithDetails: (details) {
-          if (_draggedAssetPath != null) return false;
-          return true;
-        },
-        onAcceptWithDetails: (details) async {
-          HapticFeedback.mediumImpact();
-          final data = details.data;
-          String? imagePath;
-          if (data is String) {
-            if (io.File(data).existsSync()) {
-              imagePath = data;
-            } else {
-              final match = _noteItems.firstWhere(
-                (it) => it.id == data,
-                orElse: () => NoteTextItem(id: '', initialText: ''),
-              );
-              if (match is NoteImageItem) {
-                imagePath = match.imagePath;
-              }
+        final data = details.data;
+        String? imagePath;
+        if (data is String) {
+          if (io.File(data).existsSync()) {
+            imagePath = data;
+          } else {
+            final match = _noteItems.firstWhere(
+              (it) => it.id == data,
+              orElse: () => NoteTextItem(id: '', initialText: ''),
+            );
+            if (match is NoteImageItem) {
+              imagePath = match.imagePath;
             }
           }
-          if (imagePath != null) {
-            final repo = await ref.read(questionRepositoryProvider.future);
-            await repo.isar.writeTxn(() async {
-              final q = await repo.isar.questions.get(question.id);
-              if (q != null) {
-                final images = List<String>.from(q.images ?? []);
-                if (!images.contains(imagePath)) {
-                  images.add(imagePath!);
-                  q.images = images;
-                  await repo.isar.collection<Question>().put(q);
-                }
+        }
+        if (imagePath != null) {
+          final repo = await ref.read(questionRepositoryProvider.future);
+          await repo.isar.writeTxn(() async {
+            final q = await repo.isar.questions.get(question.id);
+            if (q != null) {
+              final images = List<String>.from(q.images ?? []);
+              if (!images.contains(imagePath)) {
+                images.add(imagePath!);
+                q.images = images;
+                await repo.isar.collection<Question>().put(q);
               }
-            });
-            setState(() {});
-          }
-        },
-        builder: (context, candidateData, rejectedData) {
-          final isHovered = candidateData.isNotEmpty;
-          return Stack(
-            children: [
-              _buildOneUICard(
-                title: 'Answer Resources',
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextButton.icon(
-                      onPressed: () => _pasteImage(question),
-                      icon: const Icon(Icons.content_paste_rounded, size: 13, color: Colors.white),
-                      label: const Text('PASTE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.08),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                        minimumSize: const Size(0, 30),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
+            }
+          });
+          if (mounted) setState(() {});
+        }
+      },
+      builder: (context, candidateData, rejectedData) {
+        final isHovered = candidateData.isNotEmpty;
+        return Stack(
+          children: [
+            _buildOneUICard(
+              title: 'Answer Resources',
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _pasteImage(question),
+                    icon: _isIngestingImage
+                        ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
+                          )
+                        : const Icon(Icons.content_paste_rounded, size: 13, color: Colors.white),
+                    label: const Text('PASTE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(0.08),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      minimumSize: const Size(0, 30),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     ),
-                    const SizedBox(width: 4),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white, size: 22),
+                    onPressed: () {
+                      if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
+                        _addAssetViaPicker(question);
+                      } else {
+                        _showAttachmentOptions(context, question);
+                      }
+                    },
+                    tooltip: 'Add Asset',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
+                  ),
+                  if (question.images != null && question.images!.isNotEmpty) ...[
+                    const SizedBox(width: 2),
                     IconButton(
-                      icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white, size: 22),
-                      onPressed: () => _showAttachmentOptions(context, question),
-                      tooltip: 'Add Asset',
+                      icon: const Icon(Icons.delete_outline, color: AppTheme.urgentColor, size: 22),
+                      onPressed: () async {
+                        final repo = await ref.read(questionRepositoryProvider.future);
+                        await repo.isar.writeTxn(() async {
+                          final q = await repo.isar.questions.get(question.id);
+                          if (q != null) {
+                            q.images = [];
+                            await repo.isar.collection<Question>().put(q);
+                          }
+                        });
+                        if (mounted) setState(() {});
+                      },
+                      tooltip: 'Clear All Attachments',
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
                     ),
-                    if (question.images != null && question.images!.isNotEmpty) ...[
-                      const SizedBox(width: 2),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, color: AppTheme.urgentColor, size: 22),
-                        onPressed: () async {
-                          final repo = await ref.read(questionRepositoryProvider.future);
-                          await repo.isar.writeTxn(() async {
-                            final q = await repo.isar.questions.get(question.id);
-                            if (q != null) {
-                              q.images = [];
-                              await repo.isar.collection<Question>().put(q);
-                            }
-                          });
-                          setState(() {});
+                  ],
+                ],
+              ),
+              child: Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(minHeight: 120),
+                child: Column(
+                  children: [
+                    if (question.images == null || question.images!.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.white12, width: 1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.photo_library_outlined, color: Colors.white24, size: 28),
+                              SizedBox(height: 8),
+                              Text(
+                                'Drag images here, use PASTE or click +',
+                                style: TextStyle(color: Colors.white38, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: question.images!.length,
+                        itemBuilder: (context, index) {
+                          final path = question.images![index];
+                          return Padding(
+                            key: ValueKey(path),
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: _buildAssetTile(question, path, index),
+                          );
                         },
-                        tooltip: 'Clear All Attachments',
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
                       ),
-                    ],
                   ],
                 ),
+              ),
+            ),
+            if (isHovered || _isDraggingResources)
+              Positioned.fill(
                 child: Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(minHeight: 120),
-                  child: Column(
-                    children: [
-                      if (question.images == null || question.images!.isEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(vertical: 24),
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.white12, width: 1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.photo_library_outlined, color: Colors.white24, size: 28),
-                                SizedBox(height: 8),
-                                Text(
-                                  'Drag images here or use paste',
-                                  style: TextStyle(color: Colors.white38, fontSize: 13),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: question.images!.length,
-                          itemBuilder: (context, index) {
-                            final path = question.images![index];
-                            return Padding(
-                              key: ValueKey(path),
-                              padding: const EdgeInsets.only(bottom: 16),
-                              child: _buildAssetTile(question, path, index),
-                            );
-                          },
-                        ),
-                    ],
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E1E1E).withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.file_download_outlined, size: 40, color: Colors.white),
+                        SizedBox(height: 8),
+                        Text('Drop Image into Answer Resources', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              if (isHovered || _isDraggingResources)
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E1E1E).withValues(alpha: 0.92),
-                      borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.file_download_outlined, size: 40, color: Colors.white),
-                          SizedBox(height: 8),
-                          Text('Drop Image into Answer Resources', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
-      ),
+          ],
+        );
+      },
     );
 
     if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
-      resourcesWidget = DropTarget(
+      return DropTarget(
+        onDragEntered: (detail) {
+          if (!_isDraggingResources && mounted) {
+            setState(() => _isDraggingResources = true);
+          }
+        },
+        onDragExited: (detail) {
+          if (_isDraggingResources && mounted) {
+            setState(() => _isDraggingResources = false);
+          }
+        },
         onDragDone: (detail) async {
+          if (mounted) setState(() => _isDraggingResources = false);
           HapticFeedback.mediumImpact();
-          final docsDir = await getApplicationDocumentsDirectory();
-          final repo = await ref.read(questionRepositoryProvider.future);
+          final newPaths = <String>[];
           for (final file in detail.files) {
             final lower = file.path.toLowerCase();
             if (lower.endsWith('.jpg') ||
@@ -727,32 +698,91 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                 final bytes = await file.readAsBytes();
                 if (bytes.isNotEmpty) {
                   final ext = file.name.split('.').last.toLowerCase();
-                  final destPath = '${docsDir.path}/${const Uuid().v4()}.$ext';
-                  await io.File(destPath).writeAsBytes(bytes);
-                  await repo.isar.writeTxn(() async {
-                    final q = await repo.isar.questions.get(question.id);
-                    if (q != null) {
-                      final images = List<String>.from(q.images ?? []);
-                      if (!images.contains(destPath)) {
-                        images.add(destPath);
-                        q.images = images;
-                        await repo.isar.collection<Question>().put(q);
-                      }
-                    }
-                  });
+                  final savedPath = await _saveFilePermanently(bytes, ext);
+                  newPaths.add(savedPath);
                 }
               } catch (e) {
                 debugPrint('Failed to process dropped desktop file into resources: $e');
               }
             }
           }
-          if (mounted) setState(() {});
+          if (newPaths.isNotEmpty) {
+            final repo = await ref.read(questionRepositoryProvider.future);
+            await repo.isar.writeTxn(() async {
+              final q = await repo.isar.questions.get(question.id);
+              if (q != null) {
+                final images = List<String>.from(q.images ?? []);
+                for (final p in newPaths) {
+                  if (!images.contains(p)) images.add(p);
+                }
+                q.images = images;
+                await repo.isar.collection<Question>().put(q);
+              }
+            });
+            if (mounted) setState(() {});
+          }
         },
-        child: resourcesWidget,
+        child: innerResourcesCard,
+      );
+    } else {
+      return DropRegion(
+        formats: Formats.standardFormats,
+        onDropOver: (event) {
+          if (!_isDraggingResources && mounted) {
+            setState(() => _isDraggingResources = true);
+          }
+          return DropOperation.copy;
+        },
+        onDropLeave: (event) {
+          if (_isDraggingResources && mounted) {
+            setState(() => _isDraggingResources = false);
+          }
+        },
+        onPerformDrop: (event) async {
+          if (mounted) setState(() => _isDraggingResources = false);
+          HapticFeedback.mediumImpact();
+          for (final item in event.session.items) {
+            final reader = item.dataReader;
+            if (reader != null) {
+              reader.getFile(null, (file) async {
+                try {
+                  final bytes = await file.readAll();
+                  if (bytes.isNotEmpty) {
+                    String ext = 'jpg';
+                    final lowerName = (file.fileName ?? '').toLowerCase();
+                    if (lowerName.endsWith('.png')) {
+                      ext = 'png';
+                    } else if (lowerName.endsWith('.webp')) {
+                      ext = 'webp';
+                    } else if (lowerName.endsWith('.jpeg')) {
+                      ext = 'jpeg';
+                    }
+                    final destPath = await _saveFilePermanently(bytes, ext);
+
+                    final repo = await ref.read(questionRepositoryProvider.future);
+                    await repo.isar.writeTxn(() async {
+                      final q = await repo.isar.questions.get(question.id);
+                      if (q != null) {
+                        final images = List<String>.from(q.images ?? []);
+                        if (!images.contains(destPath)) {
+                          images.add(destPath);
+                          q.images = images;
+                          await repo.isar.collection<Question>().put(q);
+                        }
+                      }
+                    });
+                    if (mounted) setState(() {});
+                  }
+                } catch (e) {
+                  debugPrint('Failed to save dropped file from super_drag_and_drop: $e');
+                }
+              });
+            }
+          }
+        },
+        child: innerResourcesCard,
       );
     }
-
-    return resourcesWidget;
   }
 
   Widget _buildOneUICard({required String title, required Widget child, Widget? trailing, EdgeInsetsGeometry? padding}) {
@@ -1062,7 +1092,7 @@ if (\$null -ne \$img) {
   exit 0
 }
 \$files = [System.Windows.Forms.Clipboard]::GetFileDropList()
-if (\$files.Count -gt 0) {
+if (\$null -ne \$files -and \$files.Count -gt 0) {
   Write-Output "FILE:\$(\$files[0])"
   exit 0
 }
@@ -1070,7 +1100,7 @@ Write-Output 'EMPTY'
 ''';
       final result = await io.Process.run(
         'powershell',
-        ['-WindowStyle', 'Hidden', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+        ['-Sta', '-WindowStyle', 'Hidden', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
       );
       final stdout = (result.stdout as String?)?.trim() ?? '';
       if (stdout.contains('IMAGE')) {
@@ -1080,19 +1110,22 @@ Write-Output 'EMPTY'
           try { await f.delete(); } catch (_) {}
           if (bytes.isNotEmpty) return bytes;
         }
-      } else if (stdout.startsWith('FILE:')) {
-        final filePath = stdout.substring(5).trim();
-        final lower = filePath.toLowerCase();
-        if (lower.endsWith('.jpg') ||
-            lower.endsWith('.jpeg') ||
-            lower.endsWith('.png') ||
-            lower.endsWith('.webp') ||
-            lower.endsWith('.bmp') ||
-            lower.endsWith('.gif')) {
-          final f = io.File(filePath);
-          if (await f.exists()) {
-            final bytes = await f.readAsBytes();
-            if (bytes.isNotEmpty) return bytes;
+      } else if (stdout.contains('FILE:')) {
+        final line = stdout.split('\n').firstWhere((l) => l.trim().startsWith('FILE:'), orElse: () => '');
+        if (line.isNotEmpty) {
+          final filePath = line.trim().substring(5).trim();
+          final lower = filePath.toLowerCase();
+          if (lower.endsWith('.jpg') ||
+              lower.endsWith('.jpeg') ||
+              lower.endsWith('.png') ||
+              lower.endsWith('.webp') ||
+              lower.endsWith('.bmp') ||
+              lower.endsWith('.gif')) {
+            final f = io.File(filePath);
+            if (await f.exists()) {
+              final bytes = await f.readAsBytes();
+              if (bytes.isNotEmpty) return bytes;
+            }
           }
         }
       }
@@ -1100,6 +1133,287 @@ Write-Output 'EMPTY'
       debugPrint('Windows clipboard extraction error: $e');
     }
     return null;
+  }
+
+  Future<List<String>> _ingestClipboardImages() async {
+    final savedPaths = <String>[];
+
+    Future<void> saveBytes(List<int> bytes, String ext) async {
+      if (bytes.isNotEmpty) {
+        final p = await _saveFilePermanently(bytes, ext);
+        if (!savedPaths.contains(p)) savedPaths.add(p);
+      }
+    }
+
+    // TIER 1: super_clipboard (Rust-backed Win32 OLE on Windows, native clipboard on Android)
+    try {
+      final clipboard = sc.SystemClipboard.instance;
+      if (clipboard != null) {
+        final reader = await clipboard.read();
+        for (final item in reader.items) {
+          if (item.canProvide(sc.Formats.png)) {
+            final completer = Completer<Uint8List?>();
+            item.getFile(sc.Formats.png, (file) async {
+              try {
+                final b = await file.readAll();
+                if (!completer.isCompleted) completer.complete(b);
+              } catch (_) {
+                if (!completer.isCompleted) completer.complete(null);
+              }
+            }, onError: (_) {
+              if (!completer.isCompleted) completer.complete(null);
+            });
+            final b = await completer.future.timeout(const Duration(milliseconds: 2000), onTimeout: () => null);
+            if (b != null && b.isNotEmpty) {
+              await saveBytes(b, 'png');
+            }
+          } else if (item.canProvide(sc.Formats.jpeg)) {
+            final completer = Completer<Uint8List?>();
+            item.getFile(sc.Formats.jpeg, (file) async {
+              try {
+                final b = await file.readAll();
+                if (!completer.isCompleted) completer.complete(b);
+              } catch (_) {
+                if (!completer.isCompleted) completer.complete(null);
+              }
+            }, onError: (_) {
+              if (!completer.isCompleted) completer.complete(null);
+            });
+            final b = await completer.future.timeout(const Duration(milliseconds: 2000), onTimeout: () => null);
+            if (b != null && b.isNotEmpty) {
+              await saveBytes(b, 'jpg');
+            }
+          } else if (item.canProvide(sc.Formats.fileUri)) {
+            try {
+              final uri = await item.readValue(sc.Formats.fileUri);
+              if (uri != null) {
+                final filePath = uri.toFilePath();
+                final lower = filePath.toLowerCase();
+                if (lower.endsWith('.jpg') ||
+                    lower.endsWith('.jpeg') ||
+                    lower.endsWith('.png') ||
+                    lower.endsWith('.webp') ||
+                    lower.endsWith('.bmp') ||
+                    lower.endsWith('.gif')) {
+                  final f = io.File(filePath);
+                  if (await f.exists()) {
+                    final b = await f.readAsBytes();
+                    final ext = lower.split('.').last;
+                    await saveBytes(b, ext);
+                  }
+                }
+              }
+            } catch (e) {
+              debugPrint('Error reading fileUri from clipboard: $e');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('super_clipboard error in _ingestClipboardImages: $e');
+    }
+
+    if (savedPaths.isNotEmpty) return savedPaths;
+
+    // TIER 2: Native Android MethodChannel (Samsung content:// URIs)
+    if (io.Platform.isAndroid) {
+      try {
+        final nativeBytes = await _getNativeClipboardImage();
+        if (nativeBytes != null && nativeBytes.isNotEmpty) {
+          await saveBytes(nativeBytes, 'jpg');
+          return savedPaths;
+        }
+      } catch (e) {
+        debugPrint('Native Android clipboard error: $e');
+      }
+    }
+
+    // TIER 3: Windows STA PowerShell Direct Extraction
+    if (io.Platform.isWindows) {
+      try {
+        final winBytes = await _getWindowsClipboardImage();
+        if (winBytes != null && winBytes.isNotEmpty) {
+          await saveBytes(winBytes, 'png');
+          return savedPaths;
+        }
+      } catch (e) {
+        debugPrint('Windows STA clipboard error: $e');
+      }
+    }
+
+    // TIER 4: Pasteboard Fallback (CF_DIB / Pasteboard.files)
+    try {
+      final imageBytes = await Pasteboard.image;
+      if (imageBytes != null && imageBytes.isNotEmpty) {
+        List<int> bytesToSave = imageBytes;
+        String ext = 'jpg';
+        if (imageBytes.length > 2 && imageBytes[0] == 0x42 && imageBytes[1] == 0x4D) {
+          try {
+            final decoded = img.decodeBmp(imageBytes);
+            if (decoded != null) {
+              bytesToSave = img.encodePng(decoded);
+              ext = 'png';
+            }
+          } catch (_) {
+            ext = 'bmp';
+          }
+        }
+        await saveBytes(bytesToSave, ext);
+        return savedPaths;
+      }
+
+      final files = await Pasteboard.files();
+      if (files.isNotEmpty) {
+        for (final p in files) {
+          if (p.startsWith('content://') || p.startsWith('file://')) {
+            final b = await _readBytesFromNativeUri(p);
+            if (b != null && b.isNotEmpty) await saveBytes(b, 'jpg');
+          } else {
+            final lower = p.toLowerCase();
+            if (lower.endsWith('.jpg') ||
+                lower.endsWith('.jpeg') ||
+                lower.endsWith('.png') ||
+                lower.endsWith('.webp') ||
+                lower.endsWith('.bmp') ||
+                lower.endsWith('.gif')) {
+              final f = io.File(p);
+              if (await f.exists()) {
+                final b = await f.readAsBytes();
+                final ext = lower.split('.').last;
+                await saveBytes(b, ext);
+              }
+            }
+          }
+        }
+        if (savedPaths.isNotEmpty) return savedPaths;
+      }
+    } catch (e) {
+      debugPrint('Pasteboard error in _ingestClipboardImages: $e');
+    }
+
+    // TIER 5: Text / URL / Base64 / File Path
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      if (data != null && data.text != null && data.text!.isNotEmpty) {
+        final text = data.text!.trim();
+        if (text.startsWith('content://') || text.startsWith('file://')) {
+          final b = await _readBytesFromNativeUri(text);
+          if (b != null && b.isNotEmpty) await saveBytes(b, 'jpg');
+        } else if (text.startsWith('data:image/') && text.contains('base64,')) {
+          final base64String = text.substring(text.indexOf('base64,') + 7).trim();
+          final b = base64Decode(base64String);
+          if (b.isNotEmpty) {
+            final ext = text.contains('image/png') ? 'png' : 'jpg';
+            await saveBytes(b, ext);
+          }
+        } else if (text.startsWith('http://') || text.startsWith('https://')) {
+          final uri = Uri.tryParse(text);
+          if (uri != null) {
+            final lowerPath = uri.path.toLowerCase();
+            if (lowerPath.endsWith('.jpg') ||
+                lowerPath.endsWith('.jpeg') ||
+                lowerPath.endsWith('.png') ||
+                lowerPath.endsWith('.webp') ||
+                lowerPath.endsWith('.gif')) {
+              try {
+                final resp = await http.get(uri).timeout(const Duration(seconds: 4));
+                if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+                  final ext = lowerPath.split('.').last;
+                  await saveBytes(resp.bodyBytes, ext);
+                }
+              } catch (_) {}
+            }
+          }
+        } else {
+          final cleanText = text.replaceAll('"', '').trim();
+          final lowerClean = cleanText.toLowerCase();
+          if (lowerClean.endsWith('.jpg') ||
+              lowerClean.endsWith('.jpeg') ||
+              lowerClean.endsWith('.png') ||
+              lowerClean.endsWith('.webp') ||
+              lowerClean.endsWith('.bmp') ||
+              lowerClean.endsWith('.gif')) {
+            final f = io.File(cleanText);
+            if (await f.exists()) {
+              final b = await f.readAsBytes();
+              final ext = lowerClean.split('.').last;
+              await saveBytes(b, ext);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Text clipboard error in _ingestClipboardImages: $e');
+    }
+
+    return savedPaths;
+  }
+
+  Future<List<String>> _pickImagesAdaptive() async {
+    final savedPaths = <String>[];
+    try {
+      if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
+        final result = await FilePicker.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'],
+          allowMultiple: true,
+          withData: true,
+        );
+        if (result != null && result.files.isNotEmpty) {
+          for (final f in result.files) {
+            Uint8List? bytes = f.bytes;
+            final filePath = f.path;
+            if (bytes == null && filePath != null) {
+              final localFile = io.File(filePath);
+              if (await localFile.exists()) {
+                bytes = await localFile.readAsBytes();
+              }
+            }
+            if (bytes != null && bytes.isNotEmpty) {
+              final ext = (f.extension ?? 'jpg').toLowerCase();
+              final savedPath = await _saveFilePermanently(bytes, ext);
+              savedPaths.add(savedPath);
+            }
+          }
+        }
+      } else {
+        final picker = ImagePicker();
+        final imagesList = await picker.pickMultiImage();
+        if (imagesList.isNotEmpty) {
+          for (final img in imagesList) {
+            final bytes = await img.readAsBytes();
+            if (bytes.isNotEmpty) {
+              final ext = img.name.split('.').last.toLowerCase();
+              final savedPath = await _saveFilePermanently(bytes, ext.isEmpty ? 'jpg' : ext);
+              savedPaths.add(savedPath);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('pickImagesAdaptive error: $e');
+    }
+    return savedPaths;
+  }
+
+  Future<void> _addAssetViaPicker(Question question) async {
+    final paths = await _pickImagesAdaptive();
+    if (paths.isNotEmpty) {
+      final repo = await ref.read(questionRepositoryProvider.future);
+      await repo.isar.writeTxn(() async {
+        final q = await repo.isar.questions.get(question.id);
+        if (q != null) {
+          final images = List<String>.from(q.images ?? []);
+          for (final p in paths) {
+            if (!images.contains(p)) images.add(p);
+          }
+          q.images = images;
+          await repo.isar.collection<Question>().put(q);
+        }
+      });
+      HapticFeedback.lightImpact();
+      if (mounted) setState(() {});
+    }
   }
 
   void _ensureTrailingTextItem(Question question) {
@@ -1243,268 +1557,68 @@ Write-Output 'EMPTY'
   }
 
   Future<void> _pasteIntoNotebook(Question question) async {
-    // 1. Try native Android ClipboardManager via MethodChannel (resolves content:// URIs directly!)
+    if (_isIngestingImage) return;
+    setState(() => _isIngestingImage = true);
     try {
-      final nativeBytes = await _getNativeClipboardImage();
-      if (nativeBytes != null && nativeBytes.isNotEmpty) {
-        final savedPath = await _saveFilePermanently(nativeBytes, 'jpg');
-        _insertImageItemAtCursorOrEnd(savedPath, question);
+      // 1. Try ingesting image(s) from clipboard (5-tier engine)
+      final imagePaths = await _ingestClipboardImages();
+      if (imagePaths.isNotEmpty) {
+        for (final p in imagePaths) {
+          _insertImageItemAtCursorOrEnd(p, question);
+        }
         _unfocusAllNotes();
-        FocusScope.of(context).unfocus();
+        if (mounted) FocusScope.of(context).unfocus();
         setState(() => _selectedImageId = null);
         HapticFeedback.lightImpact();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Pasted ${imagePaths.length} image(s) into Notebook!'),
+              backgroundColor: Colors.white24,
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
         return;
       }
-    } catch (e) {
-      debugPrint('Native clipboard check: $e');
-    }
 
-    // 2. Try Pasteboard.image (handles Windows DIB/BMP and screenshots)
-    try {
-      final imageBytes = await Pasteboard.image;
-      if (imageBytes != null && imageBytes.isNotEmpty) {
-        List<int> bytesToSave = imageBytes;
-        String ext = 'jpg';
-        // Handle Windows clipboard BMP transcoding to PNG
-        if (imageBytes.length > 2 && imageBytes[0] == 0x42 && imageBytes[1] == 0x4D) {
-          try {
-            final decoded = img.decodeBmp(imageBytes);
-            if (decoded != null) {
-              bytesToSave = img.encodePng(decoded);
-              ext = 'png';
-            }
-          } catch (e) {
-            debugPrint('BMP decode failed: $e');
-            ext = 'bmp';
-          }
-        }
-        final savedPath = await _saveFilePermanently(bytesToSave, ext);
-        _insertImageItemAtCursorOrEnd(savedPath, question);
+      // 2. If no image found, fallback to plain human text
+      final textData = await Clipboard.getData(Clipboard.kTextPlain);
+      if (textData != null && textData.text != null && textData.text!.trim().isNotEmpty) {
+        _insertTextItemAtCursorOrEnd(textData.text!, question);
         _unfocusAllNotes();
         if (mounted) FocusScope.of(context).unfocus();
         setState(() => _selectedImageId = null);
         HapticFeedback.lightImpact();
         return;
       }
-    } catch (e) {
-      debugPrint('Pasteboard image check failed: $e');
-    }
 
-    // 2.5. Try native Windows clipboard image reader (handles Format32bppRgb, PNG, CF_BITMAP, etc.)
-    if (io.Platform.isWindows) {
-      try {
-        final winBytes = await _getWindowsClipboardImage();
-        if (winBytes != null && winBytes.isNotEmpty) {
-          final savedPath = await _saveFilePermanently(winBytes, 'png');
-          _insertImageItemAtCursorOrEnd(savedPath, question);
-          _unfocusAllNotes();
-          if (mounted) FocusScope.of(context).unfocus();
-          setState(() => _selectedImageId = null);
-          HapticFeedback.lightImpact();
-          return;
-        }
-      } catch (e) {
-        debugPrint('Windows clipboard check failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Clipboard is empty!'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
-    }
-
-    // 3. Try Pasteboard.files()
-    try {
-      final files = await Pasteboard.files();
-      if (files.isNotEmpty) {
-        for (final p in files) {
-          if (p.startsWith('content://') || p.startsWith('file://')) {
-            final bytes = await _readBytesFromNativeUri(p);
-            if (bytes != null && bytes.isNotEmpty) {
-              final savedPath = await _saveFilePermanently(bytes, 'jpg');
-              _insertImageItemAtCursorOrEnd(savedPath, question);
-              _unfocusAllNotes();
-              FocusScope.of(context).unfocus();
-              setState(() => _selectedImageId = null);
-              HapticFeedback.lightImpact();
-              return;
-            }
-          } else {
-            final lower = p.toLowerCase();
-            if (lower.endsWith('.jpg') ||
-                lower.endsWith('.jpeg') ||
-                lower.endsWith('.png') ||
-                lower.endsWith('.webp') ||
-                lower.endsWith('.bmp') ||
-                lower.endsWith('.gif')) {
-              final f = io.File(p);
-              if (await f.exists()) {
-                final bytes = await f.readAsBytes();
-                final ext = lower.split('.').last;
-                final savedPath = await _saveFilePermanently(bytes, ext);
-                _insertImageItemAtCursorOrEnd(savedPath, question);
-                _unfocusAllNotes();
-                FocusScope.of(context).unfocus();
-                setState(() => _selectedImageId = null);
-                HapticFeedback.lightImpact();
-                return;
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Pasteboard file check failed: $e');
-    }
-
-    // 4. Fallback to Clipboard.getData(Clipboard.kTextPlain)
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (data != null && data.text != null && data.text!.isNotEmpty) {
-      final text = data.text!.trim();
-
-      // Check if text is a content:// or file:// URI (Samsung keyboard image copy)
-      if (text.startsWith('content://') || text.startsWith('file://')) {
-        final bytes = await _readBytesFromNativeUri(text);
-        if (bytes != null && bytes.isNotEmpty) {
-          final savedPath = await _saveFilePermanently(bytes, 'jpg');
-          _insertImageItemAtCursorOrEnd(savedPath, question);
-          _unfocusAllNotes();
-          FocusScope.of(context).unfocus();
-          setState(() => _selectedImageId = null);
-          HapticFeedback.lightImpact();
-          return;
-        }
-      }
-
-      // Check if text is a local image file path (e.g. copied path in Windows Explorer)
-      final lowerText = text.toLowerCase();
-      if (lowerText.endsWith('.jpg') ||
-          lowerText.endsWith('.jpeg') ||
-          lowerText.endsWith('.png') ||
-          lowerText.endsWith('.webp') ||
-          lowerText.endsWith('.bmp') ||
-          lowerText.endsWith('.gif')) {
-        final cleanPath = text.replaceAll('"', '').trim();
-        final f = io.File(cleanPath);
-        if (await f.exists()) {
-          final bytes = await f.readAsBytes();
-          final ext = lowerText.split('.').last;
-          final savedPath = await _saveFilePermanently(bytes, ext);
-          _insertImageItemAtCursorOrEnd(savedPath, question);
-          _unfocusAllNotes();
-          FocusScope.of(context).unfocus();
-          setState(() => _selectedImageId = null);
-          HapticFeedback.lightImpact();
-          return;
-        }
-      }
-
-      // Check if text is a Base64 data URI
-      if (text.startsWith('data:image/') && text.contains('base64,')) {
-        try {
-          final base64Str = text.substring(text.indexOf('base64,') + 7).trim();
-          final bytes = base64Decode(base64Str);
-          if (bytes.isNotEmpty) {
-            final ext = text.contains('image/png') ? 'png' : 'jpg';
-            final savedPath = await _saveFilePermanently(bytes, ext);
-            _insertImageItemAtCursorOrEnd(savedPath, question);
-            _unfocusAllNotes();
-            FocusScope.of(context).unfocus();
-            setState(() => _selectedImageId = null);
-            HapticFeedback.lightImpact();
-            return;
-          }
-        } catch (e) {
-          debugPrint('Base64 decode error: $e');
-        }
-      }
-
-      // Plain human text!
-      _insertTextItemAtCursorOrEnd(data.text!, question);
-      _unfocusAllNotes();
-      FocusScope.of(context).unfocus();
-      setState(() => _selectedImageId = null);
-      HapticFeedback.lightImpact();
-      return;
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Clipboard is empty!'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    } finally {
+      if (mounted) setState(() => _isIngestingImage = false);
     }
   }
 
   Future<void> _pickImageIntoNotebook(Question question) async {
-    try {
-      if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
-        final result = await FilePicker.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'],
-          allowMultiple: true,
-          withData: true,
-        );
-        if (result != null && result.files.isNotEmpty) {
-          for (final f in result.files) {
-            Uint8List? bytes = f.bytes;
-            final filePath = f.path;
-            if (bytes == null && filePath != null) {
-              final localFile = io.File(filePath);
-              if (await localFile.exists()) {
-                bytes = await localFile.readAsBytes();
-              }
-            }
-            if (bytes != null && bytes.isNotEmpty) {
-              final ext = (f.extension ?? 'jpg').toLowerCase();
-              final savedPath = await _saveFilePermanently(bytes, ext);
-              _insertImageItemAtCursorOrEnd(savedPath, question);
-            }
-          }
-          _unfocusAllNotes();
-          if (mounted) FocusScope.of(context).unfocus();
-          setState(() => _selectedImageId = null);
-          HapticFeedback.lightImpact();
-          return;
-        }
-        return;
+    final paths = await _pickImagesAdaptive();
+    if (paths.isNotEmpty) {
+      for (final p in paths) {
+        _insertImageItemAtCursorOrEnd(p, question);
       }
-    } catch (e) {
-      debugPrint('Desktop file picker failed: $e');
-    }
-
-    try {
-      final picker = ImagePicker();
-      final List<XFile> imagesList = await picker.pickMultiImage();
-      if (imagesList.isNotEmpty) {
-        for (final imgFile in imagesList) {
-          final bytes = await imgFile.readAsBytes();
-          final ext = imgFile.name.split('.').last.toLowerCase();
-          final savedPath = await _saveFilePermanently(bytes, ext.isEmpty ? 'jpg' : ext);
-          _insertImageItemAtCursorOrEnd(savedPath, question);
-        }
-        _unfocusAllNotes();
-        if (mounted) FocusScope.of(context).unfocus();
-        setState(() => _selectedImageId = null);
-        HapticFeedback.lightImpact();
-        return;
-      }
-    } catch (e) {
-      debugPrint('ImagePicker pickMultiImage failed: $e');
-      try {
-        final picker = ImagePicker();
-        final image = await picker.pickImage(source: ImageSource.gallery);
-        if (image != null) {
-          final bytes = await image.readAsBytes();
-          final savedPath = await _saveFilePermanently(bytes, 'jpg');
-          _insertImageItemAtCursorOrEnd(savedPath, question);
-          _unfocusAllNotes();
-          if (mounted) FocusScope.of(context).unfocus();
-          setState(() => _selectedImageId = null);
-          HapticFeedback.lightImpact();
-        }
-      } catch (e2) {
-        debugPrint('ImagePicker pickImage fallback failed: $e2');
-      }
+      _unfocusAllNotes();
+      if (mounted) FocusScope.of(context).unfocus();
+      setState(() => _selectedImageId = null);
+      HapticFeedback.lightImpact();
     }
   }
 
@@ -2295,99 +2409,42 @@ Write-Output 'EMPTY'
   }
 
   Widget _buildNotebookContent(Question question) {
-    Widget notebookWidget = DropRegion(
-      formats: Formats.standardFormats,
-      onDropOver: (event) {
-        if (!_isDraggingNotebook && mounted) {
-          setState(() => _isDraggingNotebook = true);
-        }
-        return DropOperation.copy;
-      },
-      onDropLeave: (event) {
-        if (_isDraggingNotebook && mounted) {
-          setState(() => _isDraggingNotebook = false);
-        }
-      },
-      onPerformDrop: (event) async {
-        if (mounted) setState(() => _isDraggingNotebook = false);
-        HapticFeedback.mediumImpact();
-        final docsDir = await getApplicationDocumentsDirectory();
-        for (final item in event.session.items) {
-          final reader = item.dataReader;
-          if (reader != null) {
-            reader.getFile(null, (file) async {
-              try {
-                final bytes = await file.readAll();
-                if (bytes.isNotEmpty) {
-                  String ext = 'jpg';
-                  final lowerName = (file.fileName ?? '').toLowerCase();
-                  if (lowerName.endsWith('.png')) {
-                    ext = 'png';
-                  } else if (lowerName.endsWith('.webp')) {
-                    ext = 'webp';
-                  } else if (lowerName.endsWith('.jpeg')) {
-                    ext = 'jpeg';
-                  }
-                  final destPath = '${docsDir.path}/${const Uuid().v4()}.$ext';
-                  await io.File(destPath).writeAsBytes(bytes);
-
-                  final repo = await ref.read(questionRepositoryProvider.future);
-                  await repo.isar.writeTxn(() async {
-                    final q = await repo.isar.questions.get(question.id);
-                    if (q != null) {
-                      final images = List<String>.from(q.images ?? []);
-                      if (!images.contains(destPath)) {
-                        images.add(destPath);
-                        q.images = images;
-                        await repo.isar.collection<Question>().put(q);
-                      }
-                    }
-                  });
-
-                  _insertImageAtNotebookEnd(destPath, question.id);
-                  if (mounted) setState(() {});
-                }
-              } catch (e) {
-                debugPrint('Failed to save dropped file into notebook: $e');
-              }
-            });
-          }
-        }
-      },
-      child: DragTarget<String>(
-        key: _notebookKey,
-        onWillAcceptWithDetails: (details) => true,
-        onAcceptWithDetails: (details) {
-          _insertImageAtNotebookEnd(details.data, question.id);
-        },
-        builder: (context, candidateData, rejectedData) {
-          return Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.black.withOpacity(0.4),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (int i = 0; i < _noteItems.length; i++) ...[
-                  if (_noteItems[i] is NoteTextItem)
-                    _buildTextItemDragTarget(_noteItems[i] as NoteTextItem, i, question)
-                  else if (_noteItems[i] is NoteImageItem)
-                    _buildImageItemDragTarget(_noteItems[i] as NoteImageItem, i, question),
-                ],
-                _buildTrailingNotebookDropZone(question),
-              ],
-            ),
-          );
-        },
+    final innerNotebookContent = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.black.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < _noteItems.length; i++) ...[
+            if (_noteItems[i] is NoteTextItem)
+              _buildTextItemDragTarget(_noteItems[i] as NoteTextItem, i, question)
+            else if (_noteItems[i] is NoteImageItem)
+              _buildImageItemDragTarget(_noteItems[i] as NoteImageItem, i, question),
+          ],
+          _buildTrailingNotebookDropZone(question),
+        ],
       ),
     );
 
+    Widget notebookWidget;
     if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
       notebookWidget = DropTarget(
+        onDragEntered: (detail) {
+          if (!_isDraggingNotebook && mounted) {
+            setState(() => _isDraggingNotebook = true);
+          }
+        },
+        onDragExited: (detail) {
+          if (_isDraggingNotebook && mounted) {
+            setState(() => _isDraggingNotebook = false);
+          }
+        },
         onDragDone: (detail) async {
+          if (mounted) setState(() => _isDraggingNotebook = false);
           HapticFeedback.mediumImpact();
           final repo = await ref.read(questionRepositoryProvider.future);
           for (final file in detail.files) {
@@ -2442,7 +2499,67 @@ Write-Output 'EMPTY'
           }
           if (mounted) setState(() {});
         },
-        child: notebookWidget,
+        child: innerNotebookContent,
+      );
+    } else {
+      notebookWidget = DropRegion(
+        formats: Formats.standardFormats,
+        onDropOver: (event) {
+          if (!_isDraggingNotebook && mounted) {
+            setState(() => _isDraggingNotebook = true);
+          }
+          return DropOperation.copy;
+        },
+        onDropLeave: (event) {
+          if (_isDraggingNotebook && mounted) {
+            setState(() => _isDraggingNotebook = false);
+          }
+        },
+        onPerformDrop: (event) async {
+          if (mounted) setState(() => _isDraggingNotebook = false);
+          HapticFeedback.mediumImpact();
+          for (final item in event.session.items) {
+            final reader = item.dataReader;
+            if (reader != null) {
+              reader.getFile(null, (file) async {
+                try {
+                  final bytes = await file.readAll();
+                  if (bytes.isNotEmpty) {
+                    String ext = 'jpg';
+                    final lowerName = (file.fileName ?? '').toLowerCase();
+                    if (lowerName.endsWith('.png')) {
+                      ext = 'png';
+                    } else if (lowerName.endsWith('.webp')) {
+                      ext = 'webp';
+                    } else if (lowerName.endsWith('.jpeg')) {
+                      ext = 'jpeg';
+                    }
+                    final destPath = await _saveFilePermanently(bytes, ext);
+
+                    final repo = await ref.read(questionRepositoryProvider.future);
+                    await repo.isar.writeTxn(() async {
+                      final q = await repo.isar.questions.get(question.id);
+                      if (q != null) {
+                        final images = List<String>.from(q.images ?? []);
+                        if (!images.contains(destPath)) {
+                          images.add(destPath);
+                          q.images = images;
+                          await repo.isar.collection<Question>().put(q);
+                        }
+                      }
+                    });
+
+                    _insertImageAtNotebookEnd(destPath, question.id);
+                    if (mounted) setState(() {});
+                  }
+                } catch (e) {
+                  debugPrint('Failed to save dropped file into notebook: $e');
+                }
+              });
+            }
+          }
+        },
+        child: innerNotebookContent,
       );
     }
 
@@ -3213,14 +3330,13 @@ Write-Output 'EMPTY'
   }
 
   void _attachMedia(Question question, ImageSource source) async {
-    final picker = ImagePicker();
-    final repo = await ref.read(questionRepositoryProvider.future);
-    
     if (source == ImageSource.camera) {
+      final picker = ImagePicker();
       final image = await picker.pickImage(source: source);
       if (image != null) {
         final bytes = await image.readAsBytes();
         final savedPath = await _saveFilePermanently(bytes, 'jpg');
+        final repo = await ref.read(questionRepositoryProvider.future);
         await repo.isar.writeTxn(() async {
           final q = await repo.isar.questions.get(question.id);
           if (q != null) {
@@ -3231,175 +3347,58 @@ Write-Output 'EMPTY'
           }
         });
         HapticFeedback.vibrate();
+        if (mounted) setState(() {});
       }
     } else {
-      final List<XFile> imagesList = await picker.pickMultiImage();
-      if (imagesList.isNotEmpty) {
-        final newPaths = <String>[];
-        final orderedImages = io.Platform.isWindows ? imagesList.reversed.toList() : imagesList.toList();
-        for (var img in orderedImages) {
-          final bytes = await img.readAsBytes();
-          final p = await _saveFilePermanently(bytes, 'jpg');
-          newPaths.add(p);
-        }
-        await repo.isar.writeTxn(() async {
-          final q = await repo.isar.questions.get(question.id);
-          if (q != null) {
-            final images = List<String>.from(q.images ?? []);
-            images.addAll(newPaths);
-            q.images = images;
-            await repo.isar.questions.put(q);
-          }
-        });
-        HapticFeedback.vibrate();
-      }
+      _addAssetViaPicker(question);
     }
   }
 
   Future<void> _pasteImage(Question question) async {
-    final repo = await ref.read(questionRepositoryProvider.future);
-
-    Future<void> saveAndAddImage(dynamic bytes, String ext) async {
-      final savedPath = await _saveFilePermanently(bytes as List<int>, ext);
-      await repo.isar.writeTxn(() async {
-        final q = await repo.isar.questions.get(question.id);
-        if (q != null) {
-          final images = List<String>.from(q.images ?? []);
-          if (!images.contains(savedPath)) {
-            images.add(savedPath);
+    if (_isIngestingImage) return;
+    setState(() => _isIngestingImage = true);
+    try {
+      final paths = await _ingestClipboardImages();
+      if (paths.isNotEmpty) {
+        final repo = await ref.read(questionRepositoryProvider.future);
+        await repo.isar.writeTxn(() async {
+          final q = await repo.isar.questions.get(question.id);
+          if (q != null) {
+            final images = List<String>.from(q.images ?? []);
+            for (final p in paths) {
+              if (!images.contains(p)) images.add(p);
+            }
             q.images = images;
             await repo.isar.collection<Question>().put(q);
           }
+        });
+        HapticFeedback.vibrate();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Pasted ${paths.length} image(s) into Answer Resources!'),
+              backgroundColor: Colors.white24,
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         }
-      });
-      HapticFeedback.vibrate();
+        if (mounted) setState(() {});
+        return;
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Image pasted into Answer Resources!'),
-            backgroundColor: Colors.white24,
+            content: Text('No image found in clipboard'),
+            backgroundColor: Colors.orange,
             duration: Duration(seconds: 2),
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
-      setState(() {});
-    }
-
-    // 1. Try native Android ClipboardManager via MethodChannel (resolves Samsung content:// URIs directly)
-    try {
-      final nativeBytes = await _getNativeClipboardImage();
-      if (nativeBytes != null && nativeBytes.isNotEmpty) {
-        await saveAndAddImage(nativeBytes, 'jpg');
-        return;
-      }
-    } catch (e) {
-      debugPrint('Native clipboard error in _pasteImage: $e');
-    }
-
-    // 2. Try Pasteboard.image
-    try {
-      final imageBytes = await Pasteboard.image;
-      if (imageBytes != null && imageBytes.isNotEmpty) {
-        await saveAndAddImage(imageBytes, 'jpg');
-        return;
-      }
-    } catch (e) {
-      debugPrint('Pasteboard image check failed: $e');
-    }
-
-    // 2.5. Try native Windows clipboard image reader (handles Format32bppRgb, PNG, CF_BITMAP, etc.)
-    if (io.Platform.isWindows) {
-      try {
-        final winBytes = await _getWindowsClipboardImage();
-        if (winBytes != null && winBytes.isNotEmpty) {
-          await saveAndAddImage(winBytes, 'png');
-          return;
-        }
-      } catch (e) {
-        debugPrint('Windows clipboard error in _pasteImage: $e');
-      }
-    }
-
-    // 3. Try Pasteboard.files()
-    try {
-      final files = await Pasteboard.files();
-      if (files.isNotEmpty) {
-        for (final p in files) {
-          if (p.startsWith('content://') || p.startsWith('file://')) {
-            final bytes = await _readBytesFromNativeUri(p);
-            if (bytes != null && bytes.isNotEmpty) {
-              await saveAndAddImage(bytes, 'jpg');
-              return;
-            }
-          }
-          final lower = p.toLowerCase();
-          if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
-            final f = io.File(p);
-            if (await f.exists()) {
-              final bytes = await f.readAsBytes();
-              final ext = lower.endsWith('.png') ? 'png' : 'jpg';
-              await saveAndAddImage(bytes, ext);
-              return;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Pasteboard files check failed: $e');
-    }
-
-    // 4. Try Clipboard plain text (check if it's a content://, file path, or base64 image)
-    try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      if (data != null && data.text != null) {
-        final text = data.text!.trim();
-        if (text.startsWith('content://') || text.startsWith('file://')) {
-          final bytes = await _readBytesFromNativeUri(text);
-          if (bytes != null && bytes.isNotEmpty) {
-            await saveAndAddImage(bytes, 'jpg');
-            return;
-          }
-        } else if (text.startsWith('data:image/') && text.contains('base64,')) {
-          final base64String = text.split('base64,').last;
-          final bytes = base64Decode(base64String);
-          if (bytes.isNotEmpty) {
-            final ext = text.contains('image/png') ? 'png' : 'jpg';
-            await saveAndAddImage(bytes, ext);
-            return;
-          }
-        } else {
-          final cleanText = text.replaceAll('"', '').trim();
-          final lowerClean = cleanText.toLowerCase();
-          if (lowerClean.endsWith('.jpg') ||
-              lowerClean.endsWith('.jpeg') ||
-              lowerClean.endsWith('.png') ||
-              lowerClean.endsWith('.webp') ||
-              lowerClean.endsWith('.bmp') ||
-              lowerClean.endsWith('.gif')) {
-            final f = io.File(cleanText);
-            if (await f.exists()) {
-              final bytes = await f.readAsBytes();
-              final ext = lowerClean.split('.').last;
-              await saveAndAddImage(bytes, ext);
-              return;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Clipboard text image check failed: $e');
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No image found in clipboard'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    } finally {
+      if (mounted) setState(() => _isIngestingImage = false);
     }
   }
 
