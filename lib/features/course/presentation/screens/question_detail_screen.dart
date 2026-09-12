@@ -93,6 +93,12 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     return _textItemKeys.putIfAbsent(id, () => GlobalKey());
   }
 
+  final Map<String, GlobalKey> _imageItemKeys = {};
+
+  GlobalKey _getImageItemKey(String id) {
+    return _imageItemKeys.putIfAbsent(id, () => GlobalKey());
+  }
+
   final Set<String> _knownStorageDirs = {};
 
   String? _resolveLocalImagePath(String path, Question? question) {
@@ -274,7 +280,6 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               body: Listener(
                 onPointerMove: (pointerEvent) {
                   if (_isDraggingImage) {
-                    _updateLetterCaretFromPointer(pointerEvent.position);
                     final screenHeight = MediaQuery.of(context).size.height;
                     final dy = pointerEvent.position.dy;
                     if (dy < 180 && _scrollController.hasClients && _scrollController.offset > 0) {
@@ -805,12 +810,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
 
     return Stack(
       children: [
-        LongPressDraggable<String>(
+        _buildAdaptiveDraggable<String>(
           data: path,
-          delay: (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux)
-              ? Duration.zero
-              : const Duration(milliseconds: 150),
-          dragAnchorStrategy: pointerDragAnchorStrategy,
           onDragStarted: () {
             HapticFeedback.lightImpact();
             setState(() {
@@ -828,7 +829,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               _hoveredCaretOffset = null;
             });
           },
-          onDraggableCanceled: (_, __) {
+          onDraggableCanceled: () {
             setState(() {
               _isDraggingImage = false;
               _draggedAssetPath = null;
@@ -1368,6 +1369,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           type: FileType.custom,
           allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'],
           allowMultiple: true,
+          withData: true,
         );
         if (result != null && result.files.isNotEmpty) {
           for (final f in result.files) {
@@ -1397,16 +1399,39 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       debugPrint('Desktop file picker failed: $e');
     }
 
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      final bytes = await image.readAsBytes();
-      final savedPath = await _saveFilePermanently(bytes, 'jpg');
-      _insertImageItemAtCursorOrEnd(savedPath, question);
-      _unfocusAllNotes();
-      FocusScope.of(context).unfocus();
-      setState(() => _selectedImageId = null);
-      HapticFeedback.lightImpact();
+    try {
+      final picker = ImagePicker();
+      final List<XFile> imagesList = await picker.pickMultiImage();
+      if (imagesList.isNotEmpty) {
+        for (final imgFile in imagesList) {
+          final bytes = await imgFile.readAsBytes();
+          final ext = imgFile.name.split('.').last.toLowerCase();
+          final savedPath = await _saveFilePermanently(bytes, ext.isEmpty ? 'jpg' : ext);
+          _insertImageItemAtCursorOrEnd(savedPath, question);
+        }
+        _unfocusAllNotes();
+        if (mounted) FocusScope.of(context).unfocus();
+        setState(() => _selectedImageId = null);
+        HapticFeedback.lightImpact();
+        return;
+      }
+    } catch (e) {
+      debugPrint('ImagePicker pickMultiImage failed: $e');
+      try {
+        final picker = ImagePicker();
+        final image = await picker.pickImage(source: ImageSource.gallery);
+        if (image != null) {
+          final bytes = await image.readAsBytes();
+          final savedPath = await _saveFilePermanently(bytes, 'jpg');
+          _insertImageItemAtCursorOrEnd(savedPath, question);
+          _unfocusAllNotes();
+          if (mounted) FocusScope.of(context).unfocus();
+          setState(() => _selectedImageId = null);
+          HapticFeedback.lightImpact();
+        }
+      } catch (e2) {
+        debugPrint('ImagePicker pickImage fallback failed: $e2');
+      }
     }
   }
 
@@ -1659,6 +1684,42 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     setState(() {});
   }
 
+  Widget _buildAdaptiveDraggable<T extends Object>({
+    required T data,
+    required Widget child,
+    required Widget feedback,
+    required Widget childWhenDragging,
+    required VoidCallback onDragStarted,
+    required void Function(DraggableDetails) onDragEnd,
+    required VoidCallback onDraggableCanceled,
+  }) {
+    final isDesktop = io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux;
+    if (isDesktop) {
+      return Draggable<T>(
+        data: data,
+        dragAnchorStrategy: pointerDragAnchorStrategy,
+        onDragStarted: onDragStarted,
+        onDragEnd: onDragEnd,
+        onDraggableCanceled: (_, __) => onDraggableCanceled(),
+        feedback: feedback,
+        childWhenDragging: childWhenDragging,
+        child: child,
+      );
+    } else {
+      return LongPressDraggable<T>(
+        data: data,
+        delay: const Duration(milliseconds: 150),
+        dragAnchorStrategy: pointerDragAnchorStrategy,
+        onDragStarted: onDragStarted,
+        onDragEnd: onDragEnd,
+        onDraggableCanceled: (_, __) => onDraggableCanceled(),
+        feedback: feedback,
+        childWhenDragging: childWhenDragging,
+        child: child,
+      );
+    }
+  }
+
   Widget _buildWordDragPointerBadge({String? imagePath}) {
     return Material(
       color: Colors.transparent,
@@ -1721,121 +1782,97 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     );
   }
 
-  void _updateLetterCaretFromPointer(Offset globalPos) {
-    if (!_isDraggingImage) return;
-
-    NoteTextItem? targetItem;
-    RenderBox? targetBox;
-    Offset? targetLocalPos;
-
-    // 1. Direct hit-test: which item contains globalPos vertically?
-    for (final item in _noteItems) {
-      if (item is NoteTextItem) {
-        final key = _textItemKeys[item.id];
-        final renderBox = key?.currentContext?.findRenderObject() as RenderBox?;
-        if (renderBox != null && renderBox.hasSize) {
-          final localPos = renderBox.globalToLocal(globalPos);
-          if (localPos.dy >= 0 && localPos.dy <= renderBox.size.height) {
-            targetItem = item;
-            targetBox = renderBox;
-            targetLocalPos = localPos;
-            break;
-          }
-        }
-      }
-    }
-
-    // 2. If pointer is in margin between items or slightly above/below, find nearest item
-    if (targetItem == null) {
-      double minDistance = double.infinity;
-      for (final item in _noteItems) {
-        if (item is NoteTextItem) {
-          final key = _textItemKeys[item.id];
-          final renderBox = key?.currentContext?.findRenderObject() as RenderBox?;
-          if (renderBox != null && renderBox.hasSize) {
-            final localPos = renderBox.globalToLocal(globalPos);
-            double dist = 0;
-            if (localPos.dy < 0) {
-              dist = -localPos.dy;
-            } else if (localPos.dy > renderBox.size.height) {
-              dist = localPos.dy - renderBox.size.height;
-            }
-            if (dist < 40 && dist < minDistance) {
-              minDistance = dist;
-              targetItem = item;
-              targetBox = renderBox;
-              targetLocalPos = localPos;
-            }
-          }
-        }
-      }
-    }
-
-    if (targetItem != null && targetBox != null && targetLocalPos != null) {
-      final activeItem = targetItem;
-      final text = activeItem.controller.text;
-      if (text.isEmpty) {
-        if (_hoveredTextItemId != activeItem.id || _hoveredCharIndex != 0) {
-          setState(() {
-            _hoveredTextItemId = activeItem.id;
-            _hoveredCharIndex = 0;
-            _hoveredCaretOffset = Offset.zero;
-          });
-        }
-        return;
-      }
-
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: GoogleFonts.inter(
-            fontSize: 15,
-            fontWeight: FontWeight.w400,
-            color: AppTheme.textPrimary,
-            height: 1.6,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      textPainter.layout(maxWidth: targetBox.size.width);
-
-      // The container has 4px vertical padding, so subtract 4.0 for text coordinate
-      final localTextY = (targetLocalPos.dy - 4.0).clamp(0.0, textPainter.height);
-      final localTextX = targetLocalPos.dx.clamp(0.0, targetBox.size.width);
-      final textPos = textPainter.getPositionForOffset(Offset(localTextX, localTextY));
-      final charIdx = textPos.offset.clamp(0, text.length);
-      final caretOffset = textPainter.getOffsetForCaret(
-        TextPosition(offset: charIdx),
-        Rect.zero,
-      );
-
-      if (_hoveredTextItemId != activeItem.id ||
-          _hoveredCharIndex != charIdx ||
-          _hoveredCaretOffset != caretOffset) {
+  void _handleCaretMoveOverTextItem(NoteTextItem item, Offset globalPos) {
+    final text = item.controller.text;
+    if (text.isEmpty) {
+      if (_hoveredTextItemId != item.id || _hoveredCharIndex != 0) {
         setState(() {
-          _hoveredTextItemId = activeItem.id;
-          _hoveredCharIndex = charIdx;
-          _hoveredCaretOffset = caretOffset;
+          _hoveredTextItemId = item.id;
+          _hoveredCharIndex = 0;
+          _hoveredCaretOffset = Offset.zero;
         });
       }
       return;
     }
 
-    if (_hoveredTextItemId != null) {
+    final key = _getTextItemKey(item.id);
+    final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+    final width = renderBox?.hasSize == true ? renderBox!.size.width : 400.0;
+    final localPos = (renderBox != null && renderBox.hasSize)
+        ? renderBox.globalToLocal(globalPos)
+        : Offset.zero;
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: GoogleFonts.inter(
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          color: AppTheme.textPrimary,
+          height: 1.6,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout(maxWidth: width);
+
+    final localY = (localPos.dy - 4.0).clamp(0.0, textPainter.height);
+    final localX = localPos.dx.clamp(0.0, width);
+    final textPos = textPainter.getPositionForOffset(Offset(localX, localY));
+    final charIdx = textPos.offset.clamp(0, text.length);
+    final caretOffset = textPainter.getOffsetForCaret(
+      TextPosition(offset: charIdx),
+      Rect.zero,
+    );
+
+    if (_hoveredTextItemId != item.id ||
+        _hoveredCharIndex != charIdx ||
+        _hoveredCaretOffset != caretOffset) {
       setState(() {
-        _hoveredTextItemId = null;
-        _hoveredCharIndex = null;
-        _hoveredCaretOffset = null;
+        _hoveredTextItemId = item.id;
+        _hoveredCharIndex = charIdx;
+        _hoveredCaretOffset = caretOffset;
       });
     }
   }
 
-  void _insertImageAtCharIndex({
-    required String textItemId,
+  int _getCharIndexForOffset(NoteTextItem item, Offset globalPos) {
+    final text = item.controller.text;
+    if (text.isEmpty) return 0;
+
+    final key = _getTextItemKey(item.id);
+    final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+    final width = renderBox?.hasSize == true ? renderBox!.size.width : 400.0;
+    final localPos = (renderBox != null && renderBox.hasSize)
+        ? renderBox.globalToLocal(globalPos)
+        : Offset.zero;
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: GoogleFonts.inter(
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          color: AppTheme.textPrimary,
+          height: 1.6,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout(maxWidth: width);
+
+    final localY = (localPos.dy - 4.0).clamp(0.0, textPainter.height);
+    final localX = localPos.dx.clamp(0.0, width);
+    final textPos = textPainter.getPositionForOffset(Offset(localX, localY));
+    return textPos.offset.clamp(0, text.length);
+  }
+
+  void _splitTextAndInsertImage({
+    required NoteTextItem textItem,
     required int charIndex,
     required dynamic dragData,
-    required int questionId,
-  }) async {
+    required Question question,
+  }) {
     String? imagePath;
     String? draggedId;
 
@@ -1871,23 +1908,21 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       return;
     }
 
-    final textItemIndex = _noteItems.indexWhere((it) => it.id == textItemId);
-    if (textItemIndex == -1) {
+    final targetIndex = _noteItems.indexOf(textItem);
+    if (targetIndex == -1) {
       _noteItems.add(imageToPlace);
     } else {
-      final targetTextItem = _noteItems[textItemIndex] as NoteTextItem;
-      final fullText = targetTextItem.controller.text;
-
+      final fullText = textItem.controller.text;
       if (charIndex <= 0) {
-        _noteItems.insert(textItemIndex, imageToPlace);
+        _noteItems.insert(targetIndex, imageToPlace);
       } else if (charIndex >= fullText.length) {
-        _noteItems.insert(textItemIndex + 1, imageToPlace);
+        _noteItems.insert(targetIndex + 1, imageToPlace);
       } else {
-        // Between letters: divide into paragraph above and paragraph below
+        // MS Word style: split into paragraph above and paragraph below
         final textBefore = fullText.substring(0, charIndex);
         final textAfter = fullText.substring(charIndex);
 
-        targetTextItem.controller.text = textBefore;
+        textItem.controller.text = textBefore;
 
         final afterTextItem = NoteTextItem(
           id: const Uuid().v4(),
@@ -1901,19 +1936,13 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           });
         });
 
-        _noteItems.insert(textItemIndex + 1, imageToPlace);
-        _noteItems.insert(textItemIndex + 2, afterTextItem);
+        _noteItems.insert(targetIndex + 1, imageToPlace);
+        _noteItems.insert(targetIndex + 2, afterTextItem);
       }
     }
 
     _consolidateAdjacentTextItems();
-    if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
-      final repo = await ref.read(questionRepositoryProvider.future);
-      final q = await repo.isar.questions.get(questionId);
-      if (q != null) {
-        _createAndAddTextItem('', q);
-      }
-    }
+    _ensureTrailingTextItem(question);
 
     _isDraggingImage = false;
     _draggedImageId = null;
@@ -1922,16 +1951,80 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     _hoveredCharIndex = null;
     _hoveredCaretOffset = null;
 
-    final repo = await ref.read(questionRepositoryProvider.future);
-    final q = await repo.isar.questions.get(questionId);
-    if (q != null) {
-      _saveNotes(q, text: _serializeNotes());
-    }
+    _saveNotes(question, text: _serializeNotes(), silent: true);
     HapticFeedback.mediumImpact();
     setState(() {});
   }
 
-  void _insertImageAtNotebookEnd(dynamic dragData, int questionId) async {
+  void _insertImageNearImageItem({
+    required NoteImageItem targetItem,
+    required double dropY,
+    required dynamic dragData,
+    required Question question,
+  }) {
+    String? imagePath;
+    String? draggedId;
+
+    if (dragData is String) {
+      final existingIndex = _noteItems.indexWhere((it) => it.id == dragData);
+      if (existingIndex != -1) {
+        draggedId = dragData;
+      } else {
+        imagePath = dragData;
+      }
+    }
+
+    if (draggedId == null && imagePath == null) {
+      if (_draggedImageId != null) {
+        draggedId = _draggedImageId;
+      } else if (_draggedAssetPath != null) {
+        imagePath = _draggedAssetPath;
+      }
+    }
+
+    NoteImageItem imageToPlace;
+    if (draggedId != null) {
+      if (draggedId == targetItem.id) return;
+      final imgIdx = _noteItems.indexWhere((it) => it.id == draggedId);
+      if (imgIdx == -1) return;
+      imageToPlace = _noteItems.removeAt(imgIdx) as NoteImageItem;
+    } else if (imagePath != null) {
+      imageToPlace = NoteImageItem(
+        id: const Uuid().v4(),
+        imagePath: imagePath,
+        widthPercent: 100,
+      );
+    } else {
+      return;
+    }
+
+    final targetIndex = _noteItems.indexOf(targetItem);
+    if (targetIndex == -1) {
+      _noteItems.add(imageToPlace);
+    } else {
+      if (dropY < 60) {
+        _noteItems.insert(targetIndex, imageToPlace);
+      } else {
+        _noteItems.insert(targetIndex + 1, imageToPlace);
+      }
+    }
+
+    _consolidateAdjacentTextItems();
+    _ensureTrailingTextItem(question);
+
+    _isDraggingImage = false;
+    _draggedImageId = null;
+    _draggedAssetPath = null;
+    _hoveredTextItemId = null;
+    _hoveredCharIndex = null;
+    _hoveredCaretOffset = null;
+
+    _saveNotes(question, text: _serializeNotes(), silent: true);
+    HapticFeedback.mediumImpact();
+    setState(() {});
+  }
+
+  void _insertImageAtNotebookEnd(dynamic dragData, int questionId) {
     String? imagePath;
     String? draggedId;
 
@@ -1969,13 +2062,9 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
 
     _noteItems.add(imageToPlace);
     _consolidateAdjacentTextItems();
-    final repo = await ref.read(questionRepositoryProvider.future);
-    final q = await repo.isar.questions.get(questionId);
-    if (q != null) {
-      if (_noteItems.isEmpty || _noteItems.last is NoteImageItem) {
-        _createAndAddTextItem('', q);
-      }
-      _saveNotes(q, text: _serializeNotes());
+    if (_currentQuestion != null) {
+      _ensureTrailingTextItem(_currentQuestion!);
+      _saveNotes(_currentQuestion!, text: _serializeNotes(), silent: true);
     }
 
     _isDraggingImage = false;
@@ -2032,6 +2121,103 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTextItemDragTarget(NoteTextItem item, int index, Question question) {
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => true,
+      onMove: (details) {
+        _handleCaretMoveOverTextItem(item, details.offset);
+      },
+      onLeave: (data) {
+        if (_hoveredTextItemId == item.id) {
+          setState(() {
+            _hoveredTextItemId = null;
+            _hoveredCharIndex = null;
+            _hoveredCaretOffset = null;
+          });
+        }
+      },
+      onAcceptWithDetails: (details) {
+        final charIdx = _getCharIndexForOffset(item, details.offset);
+        _splitTextAndInsertImage(
+          textItem: item,
+          charIndex: charIdx,
+          dragData: details.data,
+          question: question,
+        );
+      },
+      builder: (context, candidateData, rejectedData) {
+        if (_isDraggingImage) {
+          return _buildDraggingTextItem(item, question);
+        } else {
+          return _buildNoteTextField(item, question);
+        }
+      },
+    );
+  }
+
+  Widget _buildImageItemDragTarget(NoteImageItem item, int index, Question question) {
+    final key = _getImageItemKey(item.id);
+    return DragTarget<String>(
+      key: key,
+      onWillAcceptWithDetails: (details) => details.data != item.id,
+      onAcceptWithDetails: (details) {
+        final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+        final localPos = (renderBox != null && renderBox.hasSize)
+            ? renderBox.globalToLocal(details.offset)
+            : Offset.zero;
+        _insertImageNearImageItem(
+          targetItem: item,
+          dropY: localPos.dy,
+          dragData: details.data,
+          question: question,
+        );
+      },
+      builder: (context, candidateData, rejectedData) {
+        return _buildNoteImageWidget(item, index, question);
+      },
+    );
+  }
+
+  Widget _buildTrailingNotebookDropZone(Question question) {
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => true,
+      onAcceptWithDetails: (details) {
+        _insertImageAtNotebookEnd(details.data, question.id);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final isHovered = candidateData.isNotEmpty;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: double.infinity,
+          height: isHovered ? 56 : (_isDraggingImage ? 40 : 16),
+          margin: const EdgeInsets.only(top: 8),
+          decoration: BoxDecoration(
+            color: isHovered ? Colors.white.withOpacity(0.08) : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: isHovered
+                ? Border.all(color: Colors.white, width: 1.5)
+                : (_isDraggingImage ? Border.all(color: Colors.white12, width: 1.0) : null),
+          ),
+          child: isHovered
+              ? const Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add_photo_alternate_outlined, color: Colors.white, size: 18),
+                      SizedBox(width: 8),
+                      Text(
+                        'Drop at end of notebook',
+                        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                )
+              : null,
+        );
+      },
     );
   }
 
@@ -2095,21 +2281,11 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           }
         }
       },
-      child: DragTarget<Object>(
+      child: DragTarget<String>(
         key: _notebookKey,
         onWillAcceptWithDetails: (details) => true,
         onAcceptWithDetails: (details) {
-          HapticFeedback.mediumImpact();
-          if (_hoveredTextItemId != null && _hoveredCharIndex != null) {
-            _insertImageAtCharIndex(
-              textItemId: _hoveredTextItemId!,
-              charIndex: _hoveredCharIndex!,
-              dragData: details.data,
-              questionId: question.id,
-            );
-          } else {
-            _insertImageAtNotebookEnd(details.data, question.id);
-          }
+          _insertImageAtNotebookEnd(details.data, question.id);
         },
         builder: (context, candidateData, rejectedData) {
           return Container(
@@ -2123,15 +2299,12 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 for (int i = 0; i < _noteItems.length; i++) ...[
-                  if (_noteItems[i] is NoteTextItem) ...[
-                    if (_isDraggingImage)
-                      _buildDraggingTextItem(_noteItems[i] as NoteTextItem, question)
-                    else
-                      _buildNoteTextField(_noteItems[i] as NoteTextItem, question),
-                  ] else if (_noteItems[i] is NoteImageItem) ...[
-                    _buildNoteImageWidget(_noteItems[i] as NoteImageItem, i, question),
-                  ],
+                  if (_noteItems[i] is NoteTextItem)
+                    _buildTextItemDragTarget(_noteItems[i] as NoteTextItem, i, question)
+                  else if (_noteItems[i] is NoteImageItem)
+                    _buildImageItemDragTarget(_noteItems[i] as NoteImageItem, i, question),
                 ],
+                _buildTrailingNotebookDropZone(question),
               ],
             ),
           );
@@ -2171,12 +2344,20 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                   });
 
                   if (_hoveredTextItemId != null && _hoveredCharIndex != null) {
-                    _insertImageAtCharIndex(
-                      textItemId: _hoveredTextItemId!,
-                      charIndex: _hoveredCharIndex!,
-                      dragData: savedPath,
-                      questionId: question.id,
+                    final targetItem = _noteItems.firstWhere(
+                      (it) => it.id == _hoveredTextItemId,
+                      orElse: () => NoteTextItem(id: '', initialText: ''),
                     );
+                    if (targetItem is NoteTextItem && targetItem.id.isNotEmpty) {
+                      _splitTextAndInsertImage(
+                        textItem: targetItem,
+                        charIndex: _hoveredCharIndex!,
+                        dragData: savedPath,
+                        question: question,
+                      );
+                    } else {
+                      _insertImageAtNotebookEnd(savedPath, question.id);
+                    }
                   } else {
                     _insertImageAtNotebookEnd(savedPath, question.id);
                   }
@@ -2317,12 +2498,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LongPressDraggable<String>(
+          _buildAdaptiveDraggable<String>(
             data: item.id,
-            delay: (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux)
-                ? Duration.zero
-                : const Duration(milliseconds: 150),
-            dragAnchorStrategy: pointerDragAnchorStrategy,
             onDragStarted: () {
               HapticFeedback.lightImpact();
               setState(() {
@@ -2341,7 +2518,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                 _hoveredCaretOffset = null;
               });
             },
-            onDraggableCanceled: (_, __) {
+            onDraggableCanceled: () {
               setState(() {
                 _isDraggingImage = false;
                 _draggedImageId = null;
