@@ -2238,6 +2238,45 @@ Write-Output 'EMPTY'
     setState(() {});
   }
 
+  Widget _buildDraggingTextItem(NoteTextItem item, Question question) {
+    final key = _getTextItemKey(item.id);
+    final text = item.controller.text;
+    final isHovered = _hoveredTextItemId == item.id && _hoveredCaretOffset != null;
+
+    return Container(
+      key: key,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Text(
+            text.isEmpty ? ' ' : text,
+            style: GoogleFonts.inter(
+              fontSize: 15,
+              fontWeight: FontWeight.w400,
+              color: AppTheme.textPrimary,
+              height: 1.6,
+            ),
+          ),
+          if (isHovered)
+            Positioned(
+              left: _hoveredCaretOffset!.dx - 1.0,
+              top: _hoveredCaretOffset!.dy,
+              child: Container(
+                width: 2.0,
+                height: 24.0,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(1.0),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTextItemDragTarget(NoteTextItem item, int index, Question question) {
     return DragTarget<String>(
       onWillAcceptWithDetails: (details) => true,
@@ -2263,28 +2302,11 @@ Write-Output 'EMPTY'
         );
       },
       builder: (context, candidateData, rejectedData) {
-        final isHovered = _hoveredTextItemId == item.id && _hoveredCaretOffset != null;
-        final textField = _buildNoteTextField(item, question);
-        if (!isHovered) return textField;
-
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            textField,
-            Positioned(
-              left: _hoveredCaretOffset!.dx,
-              top: _hoveredCaretOffset!.dy + 4.0, // align with content padding
-              child: Container(
-                width: 2.0,
-                height: 22.0,
-                decoration: BoxDecoration(
-                  color: AppTheme.accentColor, // Samsung Blue or primary color
-                  borderRadius: BorderRadius.circular(1.0),
-                ),
-              ),
-            ),
-          ],
-        );
+        if (_isDraggingImage) {
+          return _buildDraggingTextItem(item, question);
+        } else {
+          return _buildNoteTextField(item, question);
+        }
       },
     );
   }
