@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:desktop_drop/desktop_drop.dart';
 import 'dart:io';
 import 'core/router/router.dart';
 import 'core/theme/app_theme.dart';
@@ -11,10 +10,6 @@ import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    DesktopDrop.instance.init();
-  }
   
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
