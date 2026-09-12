@@ -1950,8 +1950,8 @@ Write-Output 'EMPTY'
         setState(() {
           _hoveredTextItemId = item.id;
           _hoveredCharIndex = 0;
+          _hoveredCaretOffset = Offset.zero;
         });
-        item.controller.selection = const TextSelection.collapsed(offset: 0);
       }
       return;
     }
@@ -1981,14 +1981,17 @@ Write-Output 'EMPTY'
     final localX = localPos.dx.clamp(0.0, width);
     final textPos = textPainter.getPositionForOffset(Offset(localX, localY));
     final charIdx = textPos.offset.clamp(0, text.length);
+    final caretOffset = textPainter.getOffsetForCaret(
+      TextPosition(offset: charIdx),
+      Rect.zero,
+    );
 
-    if (_hoveredTextItemId != item.id || _hoveredCharIndex != charIdx) {
+    if (_hoveredTextItemId != item.id || _hoveredCharIndex != charIdx || _hoveredCaretOffset != caretOffset) {
       setState(() {
         _hoveredTextItemId = item.id;
         _hoveredCharIndex = charIdx;
+        _hoveredCaretOffset = caretOffset;
       });
-      // Move native text cursor dynamically
-      item.controller.selection = TextSelection.collapsed(offset: charIdx);
     }
   }
 
@@ -2260,7 +2263,28 @@ Write-Output 'EMPTY'
         );
       },
       builder: (context, candidateData, rejectedData) {
-        return _buildNoteTextField(item, question, isHovered: _hoveredTextItemId == item.id);
+        final isHovered = _hoveredTextItemId == item.id && _hoveredCaretOffset != null;
+        final textField = _buildNoteTextField(item, question);
+        if (!isHovered) return textField;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            textField,
+            Positioned(
+              left: _hoveredCaretOffset!.dx,
+              top: _hoveredCaretOffset!.dy + 4.0, // align with content padding
+              child: Container(
+                width: 2.0,
+                height: 22.0,
+                decoration: BoxDecoration(
+                  color: AppTheme.accentColor, // Samsung Blue or primary color
+                  borderRadius: BorderRadius.circular(1.0),
+                ),
+              ),
+            ),
+          ],
+        );
       },
     );
   }
@@ -2473,7 +2497,7 @@ Write-Output 'EMPTY'
     );
   }
 
-  Widget _buildNoteTextField(NoteTextItem item, Question question, {bool isHovered = false}) {
+  Widget _buildNoteTextField(NoteTextItem item, Question question) {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: const TextSelectionThemeData(
@@ -2486,7 +2510,6 @@ Write-Output 'EMPTY'
         key: ValueKey(item.id),
         controller: item.controller,
         focusNode: item.focusNode,
-        showCursor: isHovered ? true : null,
         cursorColor: Colors.white,
         cursorWidth: 2.0,
         cursorRadius: const Radius.circular(1.0),
