@@ -88,6 +88,8 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   String? _hoveredTextItemId;
   int? _hoveredCharIndex;
   Offset? _hoveredCaretOffset;
+  String? _hoveredImageItemId;
+  bool _hoveredImageTopHalf = true;
   final Map<String, GlobalKey> _textItemKeys = {};
 
   GlobalKey _getTextItemKey(String id) {
@@ -2316,7 +2318,30 @@ Write-Output 'EMPTY'
     return DragTarget<String>(
       key: key,
       onWillAcceptWithDetails: (details) => details.data != item.id,
+      onMove: (details) {
+        final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+        if (renderBox != null && renderBox.hasSize) {
+          final localPos = renderBox.globalToLocal(details.offset);
+          final isTopHalf = localPos.dy < (renderBox.size.height / 2);
+          if (_hoveredImageItemId != item.id || _hoveredImageTopHalf != isTopHalf) {
+            setState(() {
+              _hoveredImageItemId = item.id;
+              _hoveredImageTopHalf = isTopHalf;
+            });
+          }
+        }
+      },
+      onLeave: (details) {
+        if (_hoveredImageItemId == item.id) {
+          setState(() {
+            _hoveredImageItemId = null;
+          });
+        }
+      },
       onAcceptWithDetails: (details) {
+        setState(() {
+          _hoveredImageItemId = null;
+        });
         final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
         final localPos = (renderBox != null && renderBox.hasSize)
             ? renderBox.globalToLocal(details.offset)
@@ -2329,7 +2354,25 @@ Write-Output 'EMPTY'
         );
       },
       builder: (context, candidateData, rejectedData) {
-        return _buildNoteImageWidget(item, index, question);
+        final isHovered = _hoveredImageItemId == item.id;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (isHovered && _hoveredImageTopHalf)
+              Container(
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 4),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(2)),
+              ),
+            _buildNoteImageWidget(item, index, question),
+            if (isHovered && !_hoveredImageTopHalf)
+              Container(
+                height: 4,
+                margin: const EdgeInsets.only(top: 4),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(2)),
+              ),
+          ],
+        );
       },
     );
   }
