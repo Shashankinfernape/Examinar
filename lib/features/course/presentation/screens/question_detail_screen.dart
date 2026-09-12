@@ -1620,15 +1620,8 @@ Write-Output 'EMPTY'
         offset = text.length;
       }
 
-      int lineEnd = text.indexOf('\n', offset);
-      if (lineEnd == -1) {
-        lineEnd = text.length;
-      } else {
-        lineEnd += 1;
-      }
-
-      final textBefore = text.substring(0, lineEnd);
-      final textAfter = text.substring(lineEnd);
+      final textBefore = text.substring(0, offset);
+      final textAfter = text.substring(offset);
 
       focusedTextItem.controller.text = textBefore;
 
