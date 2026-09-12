@@ -80,6 +80,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   bool _isDraggingResources = false;
   bool _isDraggingNotebook = false;
   bool _isIngestingImage = false;
+  Offset? _lastPointerPosition;
   Timer? _debounce;
   Timer? _questionDebounce;
   Question? _currentQuestion;
@@ -287,6 +288,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               backgroundColor: AppTheme.black,
               body: Listener(
                 onPointerMove: (pointerEvent) {
+                  _lastPointerPosition = pointerEvent.position;
                   if (_isDraggingImage) {
                     final screenHeight = MediaQuery.of(context).size.height;
                     final dy = pointerEvent.position.dy;
@@ -1941,6 +1943,7 @@ Write-Output 'EMPTY'
   }
 
   void _handleCaretMoveOverTextItem(NoteTextItem item, Offset globalPos) {
+    final actualGlobalPos = _lastPointerPosition ?? globalPos;
     final text = item.controller.text;
     if (text.isEmpty) {
       if (_hoveredTextItemId != item.id || _hoveredCharIndex != 0) {
@@ -1957,7 +1960,7 @@ Write-Output 'EMPTY'
     final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
     final width = renderBox?.hasSize == true ? renderBox!.size.width : 400.0;
     final localPos = (renderBox != null && renderBox.hasSize)
-        ? renderBox.globalToLocal(globalPos)
+        ? renderBox.globalToLocal(actualGlobalPos)
         : Offset.zero;
 
     final textPainter = TextPainter(
@@ -1995,6 +1998,7 @@ Write-Output 'EMPTY'
   }
 
   int _getCharIndexForOffset(NoteTextItem item, Offset globalPos) {
+    final actualGlobalPos = _lastPointerPosition ?? globalPos;
     final text = item.controller.text;
     if (text.isEmpty) return 0;
 
@@ -2002,7 +2006,7 @@ Write-Output 'EMPTY'
     final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
     final width = renderBox?.hasSize == true ? renderBox!.size.width : 400.0;
     final localPos = (renderBox != null && renderBox.hasSize)
-        ? renderBox.globalToLocal(globalPos)
+        ? renderBox.globalToLocal(actualGlobalPos)
         : Offset.zero;
 
     final textPainter = TextPainter(
@@ -2322,9 +2326,10 @@ Write-Output 'EMPTY'
       key: key,
       onWillAcceptWithDetails: (details) => details.data != item.id,
       onMove: (details) {
+        final actualGlobalPos = _lastPointerPosition ?? details.offset;
         final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
         if (renderBox != null && renderBox.hasSize) {
-          final localPos = renderBox.globalToLocal(details.offset);
+          final localPos = renderBox.globalToLocal(actualGlobalPos);
           final isTopHalf = localPos.dy < (renderBox.size.height / 2);
           if (_hoveredImageItemId != item.id || _hoveredImageTopHalf != isTopHalf) {
             setState(() {
