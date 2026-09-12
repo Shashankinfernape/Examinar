@@ -423,7 +423,9 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                             if (_hasAnyNoteFocus() || _selectedImageId != null)
                               Padding(
                                 padding: const EdgeInsets.only(right: 6),
-                                child: TextButton(
+                                child: _buildActionPill(
+                                  icon: Icons.check,
+                                  label: 'DONE',
                                   onPressed: () {
                                     _unfocusAllNotes();
                                     FocusScope.of(context).unfocus();
@@ -432,45 +434,26 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                                     }
                                     _saveNotes(question);
                                   },
-                                  style: TextButton.styleFrom(
-                                    backgroundColor: Colors.white.withOpacity(0.12),
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                    minimumSize: const Size(0, 30),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                  ),
-                                  child: const Text('DONE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
+                                  backgroundColor: Colors.white.withOpacity(0.12),
                                 ),
                               ),
-                            IconButton(
+                            _buildActionPill(
+                              icon: Icons.add_photo_alternate_outlined,
                               onPressed: () => _pickImageIntoNotebook(question),
-                              icon: const Icon(Icons.add_photo_alternate_outlined, size: 18, color: Colors.white),
-                              tooltip: 'Insert Image',
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
-                            ),
-                            const SizedBox(width: 4),
-                            TextButton.icon(
-                              onPressed: () => _pasteIntoNotebook(question),
-                              icon: const Icon(Icons.content_paste_rounded, size: 13, color: Colors.white),
-                              label: const Text('PASTE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
-                              style: TextButton.styleFrom(
-                                backgroundColor: Colors.white.withOpacity(0.08),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                minimumSize: const Size(0, 30),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              ),
                             ),
                             const SizedBox(width: 6),
-                            TextButton.icon(
+                            _buildActionPill(
+                              icon: Icons.content_paste_rounded,
+                              label: 'PASTE',
+                              onPressed: () => _pasteIntoNotebook(question),
+                            ),
+                            const SizedBox(width: 6),
+                            _buildActionPill(
+                              icon: Icons.auto_awesome,
+                              label: 'Generate',
+                              foregroundColor: AppTheme.primaryColor,
+                              backgroundColor: AppTheme.primaryColor.withOpacity(0.12),
                               onPressed: () => _askChatGPT(question),
-                              icon: const Icon(Icons.auto_awesome, size: 13, color: Colors.white),
-                              label: const Text('Generate', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
-                              style: TextButton.styleFrom(
-                                backgroundColor: Colors.white.withOpacity(0.08),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                minimumSize: const Size(0, 30),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              ),
                             ),
                           ],
                         ),
@@ -538,6 +521,41 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     }
   }
 
+  Widget _buildActionPill({
+    required IconData icon,
+    String? label,
+    required VoidCallback onPressed,
+    Color? backgroundColor,
+    Color? foregroundColor,
+    bool isLoading = false,
+  }) {
+    final fg = foregroundColor ?? Colors.white;
+    final bg = backgroundColor ?? Colors.white.withOpacity(0.08);
+
+    return TextButton(
+      onPressed: isLoading ? null : onPressed,
+      style: TextButton.styleFrom(
+        backgroundColor: bg,
+        padding: EdgeInsets.symmetric(horizontal: label == null ? 8 : 12, vertical: 0),
+        minimumSize: Size(label == null ? 30 : 0, 30),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isLoading)
+            SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 2, color: fg))
+          else
+            Icon(icon, size: label == null ? 15 : 13, color: fg),
+          if (label != null) ...[
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildAnswerResourcesSection(BuildContext context, Question question) {
     final innerResourcesCard = DragTarget<Object>(
       key: _resourcesKey,
@@ -587,26 +605,15 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextButton.icon(
+                  _buildActionPill(
+                    icon: Icons.content_paste_rounded,
+                    label: 'PASTE',
+                    isLoading: _isIngestingImage,
                     onPressed: () => _pasteImage(question),
-                    icon: _isIngestingImage
-                        ? const SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
-                          )
-                        : const Icon(Icons.content_paste_rounded, size: 13, color: Colors.white),
-                    label: const Text('PASTE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
-                    style: TextButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.08),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                      minimumSize: const Size(0, 30),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    ),
                   ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white, size: 22),
+                  const SizedBox(width: 6),
+                  _buildActionPill(
+                    icon: Icons.add_photo_alternate_outlined,
                     onPressed: () {
                       if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
                         _addAssetViaPicker(question);
@@ -614,14 +621,13 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                         _showAttachmentOptions(context, question);
                       }
                     },
-                    tooltip: 'Add Asset',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
                   ),
                   if (question.images != null && question.images!.isNotEmpty) ...[
-                    const SizedBox(width: 2),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: AppTheme.urgentColor, size: 22),
+                    const SizedBox(width: 6),
+                    _buildActionPill(
+                      icon: Icons.delete_outline,
+                      foregroundColor: AppTheme.urgentColor,
+                      backgroundColor: AppTheme.urgentColor.withOpacity(0.12),
                       onPressed: () async {
                         final repo = await ref.read(questionRepositoryProvider.future);
                         await repo.isar.writeTxn(() async {
@@ -633,9 +639,6 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                         });
                         if (mounted) setState(() {});
                       },
-                      tooltip: 'Clear All Attachments',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
                     ),
                   ],
                 ],
