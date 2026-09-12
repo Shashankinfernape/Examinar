@@ -2440,7 +2440,7 @@ Write-Output 'EMPTY'
           setState(() => _isDraggingNotebook = true);
         }
         
-        final globalPos = event.locationInView;
+        final globalPos = event.position.global;
         _lastPointerPosition = globalPos; // Update for external drags
         bool found = false;
         
