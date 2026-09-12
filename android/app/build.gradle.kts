@@ -11,7 +11,7 @@ plugins {
 android {
     namespace = "com.examcommandcenter.exam_command_center"
     compileSdk = 36
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
