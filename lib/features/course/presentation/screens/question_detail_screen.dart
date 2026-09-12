@@ -2297,12 +2297,12 @@ Write-Output 'EMPTY'
         );
       },
       builder: (context, candidateData, rejectedData) {
-        if (_isDraggingImage) {
-          return _buildDraggingTextItem(item, question);
-        } else {
-          return _buildNoteTextField(item, question);
-        }
-      },
+          if (_isDraggingImage || _isDraggingNotebook) {
+            return _buildDraggingTextItem(item, question);
+          } else {
+            return _buildNoteTextField(item, question);
+          }
+        },
     );
   }
 
@@ -2439,11 +2439,44 @@ Write-Output 'EMPTY'
         if (!_isDraggingNotebook && mounted) {
           setState(() => _isDraggingNotebook = true);
         }
+        
+        final globalPos = event.locationInView;
+        _lastPointerPosition = globalPos; // Update for external drags
+        bool found = false;
+        
+        for (final item in _noteItems.whereType<NoteTextItem>()) {
+          final key = _getTextItemKey(item.id);
+          final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+          if (renderBox != null && renderBox.hasSize) {
+            final localPos = renderBox.globalToLocal(globalPos);
+            if (renderBox.paintBounds.contains(localPos)) {
+              _handleCaretMoveOverTextItem(item, globalPos);
+              found = true;
+              break;
+            }
+          }
+        }
+        
+        if (!found) {
+          if (_hoveredTextItemId != null) {
+            setState(() {
+              _hoveredTextItemId = null;
+              _hoveredCharIndex = null;
+              _hoveredCaretOffset = null;
+            });
+          }
+        }
+        
         return DropOperation.copy;
       },
       onDropLeave: (event) {
         if (_isDraggingNotebook && mounted) {
-          setState(() => _isDraggingNotebook = false);
+          setState(() {
+            _isDraggingNotebook = false;
+            _hoveredTextItemId = null;
+            _hoveredCharIndex = null;
+            _hoveredCaretOffset = null;
+          });
         }
       },
       onPerformDrop: (event) async {
@@ -2482,6 +2515,11 @@ Write-Output 'EMPTY'
                 } else {
                   _insertImageAtNotebookEnd(destPath, question.id);
                 }
+                
+                // Clear hover state after drop!
+                _hoveredTextItemId = null;
+                _hoveredCharIndex = null;
+                _hoveredCaretOffset = null;
               } else {
                 _insertImageAtNotebookEnd(destPath, question.id);
               }
