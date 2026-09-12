@@ -1,13 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar/isar.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:isar/isar.dart';
 import '../../../core/database/isar_provider.dart';
 import '../../auth/data/auth_service.dart';
 import '../../course/domain/models/course.dart';
@@ -168,7 +165,7 @@ class CloudSyncService {
     final eventsList = List<Map<String, dynamic>>.from(data['plannerEvents'] ?? []);
 
     // Setup local directory for downloaded images
-    final docsDir = Platform.isWindows ? await getApplicationSupportDirectory() : await getApplicationDocumentsDirectory();
+    final docsDir = await getApplicationDocumentsDirectory();
     final examinarImagesDir = Directory('${docsDir.path}/ExaminarImages');
     if (!await examinarImagesDir.exists()) {
       await examinarImagesDir.create(recursive: true);
