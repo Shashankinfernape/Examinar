@@ -1950,8 +1950,8 @@ Write-Output 'EMPTY'
         setState(() {
           _hoveredTextItemId = item.id;
           _hoveredCharIndex = 0;
-          _hoveredCaretOffset = Offset.zero;
         });
+        item.controller.selection = const TextSelection.collapsed(offset: 0);
       }
       return;
     }
@@ -1981,19 +1981,14 @@ Write-Output 'EMPTY'
     final localX = localPos.dx.clamp(0.0, width);
     final textPos = textPainter.getPositionForOffset(Offset(localX, localY));
     final charIdx = textPos.offset.clamp(0, text.length);
-    final caretOffset = textPainter.getOffsetForCaret(
-      TextPosition(offset: charIdx),
-      Rect.zero,
-    );
 
-    if (_hoveredTextItemId != item.id ||
-        _hoveredCharIndex != charIdx ||
-        _hoveredCaretOffset != caretOffset) {
+    if (_hoveredTextItemId != item.id || _hoveredCharIndex != charIdx) {
       setState(() {
         _hoveredTextItemId = item.id;
         _hoveredCharIndex = charIdx;
-        _hoveredCaretOffset = caretOffset;
       });
+      // Move native text cursor dynamically
+      item.controller.selection = TextSelection.collapsed(offset: charIdx);
     }
   }
 
@@ -2240,52 +2235,6 @@ Write-Output 'EMPTY'
     setState(() {});
   }
 
-  Widget _buildDraggingTextItem(NoteTextItem item, Question question) {
-    final key = _getTextItemKey(item.id);
-    final text = item.controller.text;
-    final isHovered = _hoveredTextItemId == item.id && _hoveredCaretOffset != null;
-
-    return Container(
-      key: key,
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Text(
-            text.isEmpty ? ' ' : text,
-            style: GoogleFonts.inter(
-              fontSize: 15,
-              fontWeight: FontWeight.w400,
-              color: AppTheme.textPrimary,
-              height: 1.6,
-            ),
-          ),
-          if (isHovered)
-            Positioned(
-              left: _hoveredCaretOffset!.dx - 1.25,
-              top: _hoveredCaretOffset!.dy,
-              child: Container(
-                width: 2.5,
-                height: 24.0,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(1.25),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      blurRadius: 4,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildTextItemDragTarget(NoteTextItem item, int index, Question question) {
     return DragTarget<String>(
       onWillAcceptWithDetails: (details) => true,
@@ -2311,11 +2260,7 @@ Write-Output 'EMPTY'
         );
       },
       builder: (context, candidateData, rejectedData) {
-        if (_isDraggingImage) {
-          return _buildDraggingTextItem(item, question);
-        } else {
-          return _buildNoteTextField(item, question);
-        }
+        return _buildNoteTextField(item, question, isHovered: _hoveredTextItemId == item.id);
       },
     );
   }
@@ -2528,7 +2473,7 @@ Write-Output 'EMPTY'
     );
   }
 
-  Widget _buildNoteTextField(NoteTextItem item, Question question) {
+  Widget _buildNoteTextField(NoteTextItem item, Question question, {bool isHovered = false}) {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: const TextSelectionThemeData(
@@ -2541,6 +2486,7 @@ Write-Output 'EMPTY'
         key: ValueKey(item.id),
         controller: item.controller,
         focusNode: item.focusNode,
+        showCursor: isHovered ? true : null,
         cursorColor: Colors.white,
         cursorWidth: 2.0,
         cursorRadius: const Radius.circular(1.0),
