@@ -188,14 +188,14 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   }
 
   Future<String> _saveFilePermanently(List<int> bytes, String extension) async {
-    final docsDir = await getApplicationDocumentsDirectory();
+    final supportDir = await getApplicationSupportDirectory();
     final cleanExt = extension.replaceAll('.', '').toLowerCase();
     final fileName = '${const Uuid().v4()}.$cleanExt';
-    final dir = io.Directory(docsDir.path);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
+    final imagesDir = io.Directory('${supportDir.path}${io.Platform.pathSeparator}examinar_images');
+    if (!await imagesDir.exists()) {
+      await imagesDir.create(recursive: true);
     }
-    final savedFile = io.File('${docsDir.path}/$fileName');
+    final savedFile = io.File('${imagesDir.path}${io.Platform.pathSeparator}$fileName');
     await savedFile.writeAsBytes(bytes);
     return savedFile.path.replaceAll('\\', '/');
   }
