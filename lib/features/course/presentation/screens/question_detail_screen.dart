@@ -1967,6 +1967,7 @@ Write-Output 'EMPTY'
         ),
       ),
       textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
     );
     textPainter.layout(maxWidth: width);
 
@@ -2011,6 +2012,7 @@ Write-Output 'EMPTY'
         ),
       ),
       textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
     );
     textPainter.layout(maxWidth: width);
 
