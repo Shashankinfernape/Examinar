@@ -497,6 +497,45 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     );
   }
 
+  Future<void> _processDroppedItem(DropItem item, Future<void> Function(Uint8List bytes, String ext) onData) async {
+    final reader = item.dataReader;
+    if (reader == null) return;
+    
+    if (reader.canProvide(Formats.fileUri)) {
+      reader.getValue<Uri>(Formats.fileUri, (uri) async {
+        if (uri != null) {
+          try {
+            String p = uri.toFilePath(windows: io.Platform.isWindows);
+            final file = io.File(p);
+            if (await file.exists()) {
+              final bytes = await file.readAsBytes();
+              final ext = p.split('.').last.toLowerCase();
+              await onData(bytes, ext);
+            }
+          } catch (e) {
+            debugPrint('Failed to process fileUri: $e');
+          }
+        }
+      });
+    } else {
+      reader.getFile(null, (file) async {
+        try {
+          final bytes = await file.readAll();
+          if (bytes.isNotEmpty) {
+            String ext = 'jpg';
+            final lowerName = (file.fileName ?? '').toLowerCase();
+            if (lowerName.contains('.')) {
+              ext = lowerName.split('.').last;
+            }
+            await onData(bytes, ext);
+          }
+        } catch (e) {
+          debugPrint('Failed to process getFile: $e');
+        }
+      });
+    }
+  }
+
   Widget _buildAnswerResourcesSection(BuildContext context, Question question) {
     final innerResourcesCard = DragTarget<Object>(
       key: _resourcesKey,
@@ -686,42 +725,26 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
         if (mounted) setState(() => _isDraggingResources = false);
         HapticFeedback.mediumImpact();
         for (final item in event.session.items) {
-          final reader = item.dataReader;
-          if (reader != null) {
-            reader.getFile(null, (file) async {
-              try {
-                final bytes = await file.readAll();
-                if (bytes.isNotEmpty) {
-                  String ext = 'jpg';
-                  final lowerName = (file.fileName ?? '').toLowerCase();
-                  if (lowerName.endsWith('.png')) {
-                    ext = 'png';
-                  } else if (lowerName.endsWith('.webp')) {
-                    ext = 'webp';
-                  } else if (lowerName.endsWith('.jpeg')) {
-                    ext = 'jpeg';
+          await _processDroppedItem(item, (bytes, ext) async {
+            try {
+              final destPath = await _saveFilePermanently(bytes, ext);
+              final repo = await ref.read(questionRepositoryProvider.future);
+              await repo.isar.writeTxn(() async {
+                final q = await repo.isar.questions.get(question.id);
+                if (q != null) {
+                  final images = List<String>.from(q.images ?? []);
+                  if (!images.contains(destPath)) {
+                    images.add(destPath);
+                    q.images = images;
+                    await repo.isar.collection<Question>().put(q);
                   }
-                  final destPath = await _saveFilePermanently(bytes, ext);
-
-                  final repo = await ref.read(questionRepositoryProvider.future);
-                  await repo.isar.writeTxn(() async {
-                    final q = await repo.isar.questions.get(question.id);
-                    if (q != null) {
-                      final images = List<String>.from(q.images ?? []);
-                      if (!images.contains(destPath)) {
-                        images.add(destPath);
-                        q.images = images;
-                        await repo.isar.collection<Question>().put(q);
-                      }
-                    }
-                  });
-                  if (mounted) setState(() {});
                 }
-              } catch (e) {
-                debugPrint('Failed to save dropped file into resources: $e');
-              }
-            });
-          }
+              });
+              if (mounted) setState(() {});
+            } catch (e) {
+              debugPrint('Failed to save dropped file into resources: $e');
+            }
+          });
         }
       },
       child: innerResourcesCard,
@@ -1298,15 +1321,15 @@ Write-Output 'EMPTY'
       if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
         final result = await FilePicker.pickFiles(
           type: FileType.custom,
-          allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'],
+          allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'jfif'],
           allowMultiple: true,
-          withData: true,
+          withData: false,
         );
         if (result != null && result.files.isNotEmpty) {
           for (final f in result.files) {
-            Uint8List? bytes = f.bytes;
+            Uint8List? bytes;
             final filePath = f.path;
-            if (bytes == null && filePath != null) {
+            if (filePath != null) {
               final localFile = io.File(filePath);
               if (await localFile.exists()) {
                 bytes = await localFile.readAsBytes();
@@ -2390,61 +2413,46 @@ Write-Output 'EMPTY'
         if (mounted) setState(() => _isDraggingNotebook = false);
         HapticFeedback.mediumImpact();
         for (final item in event.session.items) {
-          final reader = item.dataReader;
-          if (reader != null) {
-            reader.getFile(null, (file) async {
-              try {
-                final bytes = await file.readAll();
-                if (bytes.isNotEmpty) {
-                  String ext = 'jpg';
-                  final lowerName = (file.fileName ?? '').toLowerCase();
-                  if (lowerName.endsWith('.png')) {
-                    ext = 'png';
-                  } else if (lowerName.endsWith('.webp')) {
-                    ext = 'webp';
-                  } else if (lowerName.endsWith('.jpeg')) {
-                    ext = 'jpeg';
-                  }
-                  final destPath = await _saveFilePermanently(bytes, ext);
+          await _processDroppedItem(item, (bytes, ext) async {
+            try {
+              final destPath = await _saveFilePermanently(bytes, ext);
 
-                  final repo = await ref.read(questionRepositoryProvider.future);
-                  await repo.isar.writeTxn(() async {
-                    final q = await repo.isar.questions.get(question.id);
-                    if (q != null) {
-                      final images = List<String>.from(q.images ?? []);
-                      if (!images.contains(destPath)) {
-                        images.add(destPath);
-                        q.images = images;
-                        await repo.isar.collection<Question>().put(q);
-                      }
-                    }
-                  });
-
-                  if (_hoveredTextItemId != null && _hoveredCharIndex != null) {
-                    final targetItem = _noteItems.firstWhere(
-                      (it) => it.id == _hoveredTextItemId,
-                      orElse: () => NoteTextItem(id: '', initialText: ''),
-                    );
-                    if (targetItem is NoteTextItem && targetItem.id.isNotEmpty) {
-                      _splitTextAndInsertImage(
-                        textItem: targetItem,
-                        charIndex: _hoveredCharIndex!,
-                        dragData: destPath,
-                        question: question,
-                      );
-                    } else {
-                      _insertImageAtNotebookEnd(destPath, question.id);
-                    }
-                  } else {
-                    _insertImageAtNotebookEnd(destPath, question.id);
+              final repo = await ref.read(questionRepositoryProvider.future);
+              await repo.isar.writeTxn(() async {
+                final q = await repo.isar.questions.get(question.id);
+                if (q != null) {
+                  final images = List<String>.from(q.images ?? []);
+                  if (!images.contains(destPath)) {
+                    images.add(destPath);
+                    q.images = images;
+                    await repo.isar.collection<Question>().put(q);
                   }
-                  if (mounted) setState(() {});
                 }
-              } catch (e) {
-                debugPrint('Failed to save dropped file into notebook: $e');
+              });
+
+              if (_hoveredTextItemId != null && _hoveredCharIndex != null) {
+                final targetItem = _noteItems.firstWhere(
+                  (it) => it.id == _hoveredTextItemId,
+                  orElse: () => NoteTextItem(id: '', initialText: ''),
+                );
+                if (targetItem is NoteTextItem && targetItem.id.isNotEmpty) {
+                  _splitTextAndInsertImage(
+                    textItem: targetItem,
+                    charIndex: _hoveredCharIndex!,
+                    dragData: destPath,
+                    question: question,
+                  );
+                } else {
+                  _insertImageAtNotebookEnd(destPath, question.id);
+                }
+              } else {
+                _insertImageAtNotebookEnd(destPath, question.id);
               }
-            });
-          }
+              if (mounted) setState(() {});
+            } catch (e) {
+              debugPrint('Failed to save dropped file into notebook: $e');
+            }
+          });
         }
       },
       child: innerNotebookContent,
