@@ -89,6 +89,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   String? _hoveredTextItemId;
   int? _hoveredCharIndex;
   Offset? _hoveredCaretOffset;
+  double _hoveredCaretHeight = 24.0;
   String? _hoveredImageItemId;
   bool _hoveredImageTopHalf = true;
   final Map<String, GlobalKey> _textItemKeys = {};
@@ -269,18 +270,36 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           }
 
           String bannerTitle = question.title;
+          String cleanTitle = question.title.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '');
           bool isPartA = false;
-          if (bannerTitle.startsWith(RegExp(r'^\[Unit \d+\]'))) {
+          
+          if (question.notes != null && question.notes!.toUpperCase().contains('PART C')) {
+            bannerTitle = 'PART C';
+          } else if (question.notes != null && question.notes!.toUpperCase().contains('PART B')) {
+            bannerTitle = 'PART B';
+          } else if (question.notes != null && question.notes!.toUpperCase().contains('PART A')) {
             isPartA = true;
             bannerTitle = 'PART A';
+          } else {
+            final numMatch = RegExp(r'^(\d+)').firstMatch(cleanTitle);
+            if (numMatch != null) {
+              int qNum = int.parse(numMatch.group(1)!);
+              if (qNum >= 1 && qNum <= 10) {
+                isPartA = true;
+                bannerTitle = 'PART A';
+              } else if (qNum >= 11 && qNum <= 15) {
+                bannerTitle = 'PART B';
+              } else if (qNum >= 16) {
+                bannerTitle = 'PART C';
+              }
+            } else if (bannerTitle.startsWith(RegExp(r'^\[Unit \d+\]'))) {
+              isPartA = true;
+              bannerTitle = 'PART A';
+            }
           }
           
           if (!_hasInitializedQuestion) {
-            String initialText = question.notes ?? '';
-            if (isPartA && initialText.isEmpty) {
-              initialText = question.title.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '');
-            }
-            _questionController.text = initialText;
+            _questionController.text = question.notes ?? '';
             _hasInitializedQuestion = true;
           }
 
@@ -355,64 +374,22 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                   padding: EdgeInsets.symmetric(horizontal: hPad),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      // 3. QUESTION CARD (AI Analysis Leftovers)
+                      // 3. QUESTION CARD
                       _buildOneUICard(
                         title: 'Question',
                         padding: const EdgeInsets.all(16),
-                        child: TextField(
-                          controller: _questionController,
-                          focusNode: _questionFocusNode,
-                          maxLines: null,
-                          minLines: 1,
-                          textInputAction: TextInputAction.done,
-                          onEditingComplete: () {
-                            _questionFocusNode.unfocus();
-                            FocusScope.of(context).unfocus();
-                            _saveQuestionNotes(question, text: _questionController.text);
-                          },
-                          contextMenuBuilder: (context, editableTextState) {
-                            final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
-                            final int pasteIndex = buttonItems.indexWhere((item) => item.type == ContextMenuButtonType.paste);
-                            if (pasteIndex != -1) {
-                              final originalPaste = buttonItems[pasteIndex].onPressed;
-                              buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
-                                onPressed: () {
-                                  if (originalPaste != null) originalPaste();
-                                  Future.microtask(() {
-                                    _questionFocusNode.unfocus();
-                                    FocusScope.of(context).unfocus();
-                                    _saveQuestionNotes(question, text: _questionController.text);
-                                  });
-                                },
-                              );
-                            }
-                            return AdaptiveTextSelectionToolbar.buttonItems(
-                              anchors: editableTextState.contextMenuAnchors,
-                              buttonItems: buttonItems,
-                            );
-                          },
+                        child: Text(
+                          question.title.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), ''),
                           style: GoogleFonts.inter(
-                            fontSize: 15, 
-                            fontWeight: FontWeight.w400, 
-                            color: AppTheme.textPrimary, 
-                            height: 1.6,
-                          ),
-                          onChanged: (val) {
-                            if (_questionDebounce?.isActive ?? false) _questionDebounce!.cancel();
-                            _questionDebounce = Timer(const Duration(milliseconds: 300), () {
-                              _saveQuestionNotes(question, text: val, silent: true);
-                            });
-                          },
-                          decoration: InputDecoration(
-                            hintText: 'Paste or type question details here...',
-                            hintStyle: const TextStyle(color: Colors.white38),
-                            filled: true,
-                            fillColor: AppTheme.black.withOpacity(0.4),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                            contentPadding: const EdgeInsets.all(12),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            height: 1.5,
                           ),
                         ),
                       ),
+                      
+
 
                       const SizedBox(height: 16),
 
@@ -1532,12 +1509,32 @@ Write-Output 'EMPTY'
   Future<void> _pasteIntoNotebook(Question question) async {
     if (_isIngestingImage) return;
     setState(() => _isIngestingImage = true);
+
+    // Snapshot cursor BEFORE the async gap — clipboard read is async and will
+    // clear focus, making the image land at the end instead of the cursor point.
+    int savedFocusIndex = -1;
+    int savedOffset = -1;
+    for (int i = 0; i < _noteItems.length; i++) {
+      final it = _noteItems[i];
+      if (it is NoteTextItem && it.focusNode.hasFocus) {
+        savedFocusIndex = i;
+        savedOffset = it.controller.selection.baseOffset;
+        if (savedOffset < 0) savedOffset = it.controller.text.length;
+        break;
+      }
+    }
+
     try {
       // 1. Try ingesting image(s) from clipboard (5-tier engine)
       final imagePaths = await _ingestClipboardImages();
       if (imagePaths.isNotEmpty) {
         for (final p in imagePaths) {
-          _insertImageItemAtCursorOrEnd(p, question);
+          _insertImageItemAtCursorOrEnd(
+            p,
+            question,
+            savedFocusIndex: savedFocusIndex,
+            savedOffset: savedOffset,
+          );
         }
         _unfocusAllNotes();
         if (mounted) FocusScope.of(context).unfocus();
@@ -1583,10 +1580,30 @@ Write-Output 'EMPTY'
   }
 
   Future<void> _pickImageIntoNotebook(Question question) async {
+    // Snapshot cursor BEFORE the async gap — the file-picker dialog will steal
+    // focus and focusNode.hasFocus becomes false after the await, causing the
+    // image to be appended at the end instead of at the cursor position.
+    int savedFocusIndex = -1;
+    int savedOffset = -1;
+    for (int i = 0; i < _noteItems.length; i++) {
+      final it = _noteItems[i];
+      if (it is NoteTextItem && it.focusNode.hasFocus) {
+        savedFocusIndex = i;
+        savedOffset = it.controller.selection.baseOffset;
+        if (savedOffset < 0) savedOffset = it.controller.text.length;
+        break;
+      }
+    }
+
     final paths = await _pickImagesAdaptive();
     if (paths.isNotEmpty) {
       for (final p in paths) {
-        _insertImageItemAtCursorOrEnd(p, question);
+        _insertImageItemAtCursorOrEnd(
+          p,
+          question,
+          savedFocusIndex: savedFocusIndex,
+          savedOffset: savedOffset,
+        );
       }
       _unfocusAllNotes();
       if (mounted) FocusScope.of(context).unfocus();
@@ -1595,15 +1612,39 @@ Write-Output 'EMPTY'
     }
   }
 
-  void _insertImageItemAtCursorOrEnd(String imagePath, Question question) {
-    int focusedIndex = -1;
+  /// Inserts an image at the cursor position.
+  ///
+  /// [savedFocusIndex] and [savedOffset] are pre-captured BEFORE any async gap
+  /// (e.g. file picker / clipboard await) where Flutter loses focus. When
+  /// provided they take priority over the live focus check, which would return
+  /// -1 after the async gap and wrongly append the image at the end.
+  void _insertImageItemAtCursorOrEnd(
+    String imagePath,
+    Question question, {
+    int savedFocusIndex = -1,
+    int savedOffset = -1,
+  }) {
+    // Prefer the pre-captured index; fall back to live focus scan only when no
+    // snapshot was taken (i.e. called synchronously while focus is still live).
+    int focusedIndex = savedFocusIndex;
     NoteTextItem? focusedTextItem;
-    for (int i = 0; i < _noteItems.length; i++) {
-      final it = _noteItems[i];
-      if (it is NoteTextItem && it.focusNode.hasFocus) {
-        focusedIndex = i;
-        focusedTextItem = it;
-        break;
+
+    if (focusedIndex >= 0 && focusedIndex < _noteItems.length) {
+      final candidate = _noteItems[focusedIndex];
+      if (candidate is NoteTextItem) {
+        focusedTextItem = candidate;
+      }
+    }
+
+    // Live-focus fallback (synchronous callers that did not pre-capture).
+    if (focusedTextItem == null) {
+      for (int i = 0; i < _noteItems.length; i++) {
+        final it = _noteItems[i];
+        if (it is NoteTextItem && it.focusNode.hasFocus) {
+          focusedIndex = i;
+          focusedTextItem = it;
+          break;
+        }
       }
     }
 
@@ -1615,7 +1656,9 @@ Write-Output 'EMPTY'
 
     if (focusedTextItem != null && focusedIndex != -1) {
       final text = focusedTextItem.controller.text;
-      int offset = focusedTextItem.controller.selection.baseOffset;
+
+      // Use pre-captured offset when available; otherwise read from selection.
+      int offset = (savedOffset >= 0) ? savedOffset : focusedTextItem.controller.selection.baseOffset;
       if (offset < 0 || offset > text.length) {
         offset = text.length;
       }
@@ -1971,20 +2014,22 @@ Write-Output 'EMPTY'
     );
     textPainter.layout(maxWidth: width);
 
-    final localY = (localPos.dy - 4.0).clamp(0.0, textPainter.height);
+    final localY = (localPos.dy - 4.0).clamp(0.0, textPainter.height - 1);
     final localX = localPos.dx.clamp(0.0, width);
     final textPos = textPainter.getPositionForOffset(Offset(localX, localY));
     final charIdx = textPos.offset.clamp(0, text.length);
-    final caretOffset = textPainter.getOffsetForCaret(
-      TextPosition(offset: charIdx),
-      Rect.zero,
-    );
+    final validTextPos = TextPosition(offset: charIdx, affinity: textPos.affinity);
+    
+    // getFullHeightForCaret returns double? (the line height), not a Rect.
+    final fullHeight = textPainter.getFullHeightForCaret(validTextPos, Rect.zero);
+    final caretOffset = textPainter.getOffsetForCaret(validTextPos, Rect.zero);
 
     if (_hoveredTextItemId != item.id || _hoveredCharIndex != charIdx || _hoveredCaretOffset != caretOffset) {
       setState(() {
         _hoveredTextItemId = item.id;
         _hoveredCharIndex = charIdx;
         _hoveredCaretOffset = caretOffset;
+        _hoveredCaretHeight = fullHeight;
       });
     }
   }
@@ -2257,10 +2302,12 @@ Write-Output 'EMPTY'
           if (isHovered)
             Positioned(
               left: _hoveredCaretOffset!.dx - 1.0,
-              top: _hoveredCaretOffset!.dy,
+              // +4 corrects for the container's vertical padding so the caret
+              // bar aligns over the actual rendered text, not 4px above it.
+              top: _hoveredCaretOffset!.dy + 4.0,
               child: Container(
                 width: 2.0,
-                height: 24.0,
+                height: _hoveredCaretHeight,
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(1.0),
@@ -2288,7 +2335,14 @@ Write-Output 'EMPTY'
         }
       },
       onAcceptWithDetails: (details) {
-        final charIdx = _getCharIndexForOffset(item, details.offset);
+        // Use the already-displayed caret index (_hoveredCharIndex) so the
+        // split happens at exactly the position the visual cursor was showing.
+        // Re-computing via _getCharIndexForOffset on drop can diverge because
+        // _lastPointerPosition is from the last onMove event (slightly before
+        // release) and the two TextPainter instances can disagree by a character.
+        final charIdx = (_hoveredTextItemId == item.id && _hoveredCharIndex != null)
+            ? _hoveredCharIndex!
+            : _getCharIndexForOffset(item, details.offset);
         _splitTextAndInsertImage(
           textItem: item,
           charIndex: charIdx,
@@ -2561,48 +2615,61 @@ Write-Output 'EMPTY'
           selectionColor: Colors.white24,
         ),
       ),
-      child: TextField(
-        key: ValueKey(item.id),
-        controller: item.controller,
-        focusNode: item.focusNode,
-        cursorColor: Colors.white,
-        cursorWidth: 2.0,
-        cursorRadius: const Radius.circular(1.0),
-        maxLines: null,
-        minLines: 1,
-        textInputAction: TextInputAction.newline,
-        onEditingComplete: () {
-          item.focusNode.unfocus();
-          FocusScope.of(context).unfocus();
-          _saveNotes(question, text: _serializeNotes());
-        },
-        contextMenuBuilder: (context, editableTextState) {
-          final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
-          final int pasteIndex = buttonItems.indexWhere((b) => b.type == ContextMenuButtonType.paste);
-          if (pasteIndex != -1) {
-            buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
-              onPressed: () {
-                _pasteIntoNotebook(question);
-              },
-            );
+      child: Focus(
+        canRequestFocus: false,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent || event is KeyRepeatEvent) {
+            if (event.logicalKey == LogicalKeyboardKey.keyV && 
+                (HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed)) {
+              _pasteIntoNotebook(question);
+              return KeyEventResult.handled;
+            }
           }
-          return AdaptiveTextSelectionToolbar.buttonItems(
-            anchors: editableTextState.contextMenuAnchors,
-            buttonItems: buttonItems,
-          );
+          return KeyEventResult.ignored;
         },
-        style: GoogleFonts.inter(
-          fontSize: 15,
-          fontWeight: FontWeight.w400,
-          color: AppTheme.textPrimary,
-          height: 1.6,
-        ),
-        decoration: InputDecoration(
-          hintText: _noteItems.length <= 1 ? 'Paste or type your notes here...' : 'Continue notes here...',
-          hintStyle: const TextStyle(color: Colors.white38),
-          border: InputBorder.none,
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+        child: TextField(
+          key: ValueKey(item.id),
+          controller: item.controller,
+          focusNode: item.focusNode,
+          cursorColor: Colors.white,
+          cursorWidth: 2.0,
+          cursorRadius: const Radius.circular(1.0),
+          maxLines: null,
+          minLines: 1,
+          textInputAction: TextInputAction.newline,
+          onEditingComplete: () {
+            item.focusNode.unfocus();
+            FocusScope.of(context).unfocus();
+            _saveNotes(question, text: _serializeNotes());
+          },
+          contextMenuBuilder: (context, editableTextState) {
+            final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
+            final int pasteIndex = buttonItems.indexWhere((b) => b.type == ContextMenuButtonType.paste);
+            if (pasteIndex != -1) {
+              buttonItems[pasteIndex] = buttonItems[pasteIndex].copyWith(
+                onPressed: () {
+                  _pasteIntoNotebook(question);
+                },
+              );
+            }
+            return AdaptiveTextSelectionToolbar.buttonItems(
+              anchors: editableTextState.contextMenuAnchors,
+              buttonItems: buttonItems,
+            );
+          },
+          style: GoogleFonts.inter(
+            fontSize: 15,
+            fontWeight: FontWeight.w400,
+            color: AppTheme.textPrimary,
+            height: 1.6,
+          ),
+          decoration: InputDecoration(
+            hintText: _noteItems.length <= 1 ? 'Paste or type your notes here...' : 'Continue notes here...',
+            hintStyle: const TextStyle(color: Colors.white38),
+            border: InputBorder.none,
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(vertical: 4),
+          ),
         ),
       ),
     );
