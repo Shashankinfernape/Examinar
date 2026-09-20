@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/auth_service.dart';
 
@@ -13,243 +13,106 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  
   bool _isLoading = false;
-  bool _obscurePassword = true;
   String? _errorMessage;
-
-  void _submit(bool isSignUp) async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
-    if (email.isEmpty || !email.contains('@')) {
-      setState(() {
-        _errorMessage = 'Please enter a valid email address';
-        _isLoading = false;
-      });
-      return;
-    }
-
-    if (password.length < 6) {
-      setState(() {
-        _errorMessage = 'Password must be at least 6 characters';
-        _isLoading = false;
-      });
-      return;
-    }
-
-    final authService = ref.read(authServiceProvider);
-    try {
-      if (isSignUp) {
-        await authService.signUpWithEmail(email, password);
-      } else {
-        await authService.signInWithEmail(email, password);
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isSignUp ? 'Account created successfully!' : 'Logged in successfully!'), 
-            backgroundColor: AppTheme.completedColor
-          ),
-        );
-        context.pop(); 
-      }
-    } on FirebaseAuthException catch (e) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = e.message ?? 'Authentication failed';
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'An unexpected error occurred';
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.black,
-      appBar: AppBar(
-        title: const Text('Cloud Backup Login'),
-        backgroundColor: AppTheme.black,
-        elevation: 0,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Icon(Icons.cloud_sync_rounded, size: 64, color: Colors.white),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Secure your data',
-              textAlign: TextAlign.left,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Sign in with Email and Password to backup or restore your data securely. 100% Free.',
-              textAlign: TextAlign.left,
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-            ),
-            const SizedBox(height: 32),
-            
-            if (_errorMessage != null)
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: AppTheme.urgentColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.urgentColor),
-                ),
-                child: Text(
-                  _errorMessage!,
-                  style: const TextStyle(color: AppTheme.urgentColor),
-                ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 48.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Spacer(),
+              const Align(
+                alignment: Alignment.center,
+                child: Icon(Icons.cloud_sync_rounded, size: 84, color: AppTheme.samsungBlue),
               ),
-
-            TextField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Email',
-                hintStyle: const TextStyle(color: Colors.white30),
-                filled: true,
-                fillColor: AppTheme.cardSurface,
-                prefixIcon: const Icon(Icons.email, color: Colors.white54),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              const SizedBox(height: 32),
+              Text(
+                'Welcome to Examinar',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.spaceGrotesk(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _passwordController,
-              obscureText: _obscurePassword,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Password',
-                hintStyle: const TextStyle(color: Colors.white30),
-                filled: true,
-                fillColor: AppTheme.cardSurface,
-                prefixIcon: const Icon(Icons.lock, color: Colors.white54),
-                suffixIcon: IconButton(
-                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white54),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                ),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              const SizedBox(height: 12),
+              const Text(
+                \'Sign in seamlessly to sync your study data across all your devices securely.\',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 16, height: 1.4),
               ),
-            ),
-            const SizedBox(height: 24),
-            
-            ElevatedButton(
-              onPressed: _isLoading ? null : () => _submit(false),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: AppTheme.samsungBlue,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: _isLoading 
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                  : const Text('Login', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _isLoading ? null : () async {
-                setState(() {
-                  _isLoading = true;
-                  _errorMessage = null;
-                });
-                try {
-                  final authService = ref.read(authServiceProvider);
-                  final user = await authService.signInWithGoogle();
-                  if (user != null && mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Logged in with Google!'), backgroundColor: AppTheme.completedColor),
-                    );
-                    context.pop();
-                  } else {
-                     setState(() => _isLoading = false);
-                  }
-                } catch (e) {
-                  setState(() {
-                    _isLoading = false;
-                    _errorMessage = 'Google Sign In failed: $e';
-                  });
-                }
-              },
-              icon: const Icon(Icons.login, color: Colors.black),
-              label: const Text('Continue with Google', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                TextButton(
-                  onPressed: _isLoading ? null : () async {
-                    final email = _emailController.text.trim();
-                    if (email.isEmpty || !email.contains('@')) {
-                      setState(() => _errorMessage = 'Enter your email above to reset password');
-                      return;
-                    }
-                    try {
-                      await ref.read(authServiceProvider).sendPasswordResetEmail(email);
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Password reset email sent!'), backgroundColor: AppTheme.completedColor),
-                        );
-                      }
-                    } catch (e) {
-                      setState(() => _errorMessage = 'Failed to send reset email');
-                    }
-                  },
-                  style: TextButton.styleFrom(overlayColor: Colors.transparent),
-                  child: const Text('Forgot Password?', style: TextStyle(color: Colors.white54, fontSize: 14)),
-                ),
-                TextButton(
-                  onPressed: _isLoading ? null : () => _submit(true),
-                  style: TextButton.styleFrom(overlayColor: Colors.transparent),
-                  child: RichText(
-                    text: const TextSpan(
-                      text: "No account? ",
-                      style: TextStyle(color: Colors.white54, fontSize: 14, fontWeight: FontWeight.w500),
-                      children: [
-                        TextSpan(
-                          text: "Create one",
-                          style: TextStyle(color: AppTheme.samsungBlue, fontSize: 14, fontWeight: FontWeight.w800),
+              const SizedBox(height: 48),
+              
+              if (_errorMessage != null)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  margin: const EdgeInsets.only(bottom: 24),
+                  decoration: BoxDecoration(
+                    color: AppTheme.urgentColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.urgentColor.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: AppTheme.urgentColor),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _errorMessage!,
+                          style: const TextStyle(color: AppTheme.urgentColor, fontWeight: FontWeight.w500),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-          ],
+
+              ElevatedButton(
+                onPressed: _isLoading ? null : () async {
+                  setState(() {
+                    _isLoading = true;
+                    _errorMessage = null;
+                  });
+                  try {
+                    final authService = ref.read(authServiceProvider);
+                    final user = await authService.signInWithGoogle();
+                    if (user != null && mounted) {
+                      // Handled automatically by GoRouter redirect
+                    } else if (mounted) {
+                       setState(() => _isLoading = false);
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      setState(() {
+                        _isLoading = false;
+                        _errorMessage = 'Authentication canceled or failed. Please try again.';
+                      });
+                    }
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: _isLoading 
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.black))
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Using a simple Material icon since we might not have a google logo asset
+                          const Icon(Icons.login, size: 24),
+                          const SizedBox(width: 12),
+                          Text('Continue with Google', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, fontSize: 18)),
+                        ],
+                      ),
+              ),
+              const Spacer(flex: 2),
+            ],
+          ),
         ),
       ),
     );
