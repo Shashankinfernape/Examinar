@@ -52,12 +52,20 @@ class AuthService {
       } else if (Platform.isAndroid || Platform.isIOS) {
         // Android/iOS: Use official google_sign_in package
         await _ensureInitialized();
-        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-        if (googleUser == null) return null; // Canceled by user
+        
+        // Trigger the authentication flow
+        final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
+        
+        // Obtain the auth details from the request
+        final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+        final GoogleSignInAuthorizationClient authClient = googleUser.authorizationClient;
 
-        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        GoogleSignInClientAuthorization? clientAuth = await authClient.authorizationForScopes([]);
+        clientAuth ??= await authClient.authorizeScopes([]);
+
+        // Create a new credential
         final AuthCredential credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
+          accessToken: clientAuth.accessToken,
           idToken: googleAuth.idToken,
         );
         return await _auth.signInWithCredential(credential);
