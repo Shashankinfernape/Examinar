@@ -45,35 +45,26 @@ class AuthService {
 
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-        // Desktop platforms: use Firebase Auth's native provider flow
+      if (kIsWeb) {
+        // Web: Use Firebase's native popup
         final provider = GoogleAuthProvider();
-        return await _auth.signInWithProvider(provider);
-      } else {
-        // Web, Android, iOS: use official google_sign_in package
+        return await _auth.signInWithPopup(provider);
+      } else if (Platform.isAndroid || Platform.isIOS) {
+        // Android/iOS: Use official google_sign_in package
         await _ensureInitialized();
-        
-        // Trigger the authentication flow
-        final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
-        
-        // Obtain the auth details from the request
-        final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-        final GoogleSignInAuthorizationClient authClient = googleUser.authorizationClient;
+        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+        if (googleUser == null) return null; // Canceled by user
 
-        GoogleSignInClientAuthorization? clientAuth = await authClient.authorizationForScopes([]);
-        clientAuth ??= await authClient.authorizeScopes([]);
-
-        // Create a new credential
+        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
         final AuthCredential credential = GoogleAuthProvider.credential(
-          accessToken: clientAuth.accessToken,
+          accessToken: googleAuth.accessToken,
           idToken: googleAuth.idToken,
         );
-
-        // Once signed in, return the UserCredential
         return await _auth.signInWithCredential(credential);
+      } else {
+        // Windows/Linux/macOS:
+        throw Exception('Google Sign-In requires Android, iOS, or Web.');
       }
-    } on GoogleSignInException {
-      return null; // The user canceled the sign-in or other issue
     } catch (e) {
       print('Google Sign-In Error: $e');
       return null;
