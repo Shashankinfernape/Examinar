@@ -15,7 +15,7 @@ extension GetCourseCollection on Isar {
 
 const CourseSchema = CollectionSchema(
   name: r'Course',
-  id: -5832084671214696602,
+  id: -4426753397275425,
   properties: {
     r'colorTag': PropertySchema(
       id: 0,
@@ -46,7 +46,7 @@ const CourseSchema = CollectionSchema(
   indexes: {},
   links: {
     r'units': LinkSchema(
-      id: -1902240978921546135,
+      id: -1721936171197034,
       name: r'units',
       target: r'Unit',
       single: false,

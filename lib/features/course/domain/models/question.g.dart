@@ -15,7 +15,7 @@ extension GetQuestionCollection on Isar {
 
 const QuestionSchema = CollectionSchema(
   name: r'Question',
-  id: -6819722535046815095,
+  id: -1272699207884908,
   properties: {
     r'courseId': PropertySchema(
       id: 0,
@@ -87,7 +87,7 @@ const QuestionSchema = CollectionSchema(
   indexes: {},
   links: {
     r'unitLink': LinkSchema(
-      id: -1532805403889269100,
+      id: -1581530583300630,
       name: r'unitLink',
       target: r'Unit',
       single: true,

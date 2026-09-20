@@ -15,7 +15,7 @@ extension GetTopicCollection on Isar {
 
 const TopicSchema = CollectionSchema(
   name: r'Topic',
-  id: 5334984740663963266,
+  id: 2722781857296594,
   properties: {
     r'name': PropertySchema(
       id: 0,
@@ -31,14 +31,14 @@ const TopicSchema = CollectionSchema(
   indexes: {},
   links: {
     r'unit': LinkSchema(
-      id: -8311469007567026423,
+      id: -6831294695832721,
       name: r'unit',
       target: r'Unit',
       single: true,
       linkName: r'topics',
     ),
     r'questions': LinkSchema(
-      id: -3472629865207435725,
+      id: -4858152132154190,
       name: r'questions',
       target: r'Question',
       single: false,

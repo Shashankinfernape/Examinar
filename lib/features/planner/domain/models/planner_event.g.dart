@@ -15,7 +15,7 @@ extension GetPlannerEventCollection on Isar {
 
 const PlannerEventSchema = CollectionSchema(
   name: r'PlannerEvent',
-  id: -8507074845697967445,
+  id: -4278749222471941,
   properties: {
     r'colorHex': PropertySchema(
       id: 0,

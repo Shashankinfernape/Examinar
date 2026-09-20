@@ -15,7 +15,7 @@ extension GetUnitCollection on Isar {
 
 const UnitSchema = CollectionSchema(
   name: r'Unit',
-  id: 5852079958688209740,
+  id: 6407642361306581,
   properties: {
     r'index': PropertySchema(
       id: 0,
@@ -36,14 +36,14 @@ const UnitSchema = CollectionSchema(
   indexes: {},
   links: {
     r'course': LinkSchema(
-      id: 6632668068081144945,
+      id: 3369416591775569,
       name: r'course',
       target: r'Course',
       single: true,
       linkName: r'units',
     ),
     r'topics': LinkSchema(
-      id: -2804056457855199444,
+      id: -2817489630751243,
       name: r'topics',
       target: r'Topic',
       single: false,
