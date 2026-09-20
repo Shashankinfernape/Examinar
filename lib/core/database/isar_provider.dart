@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -12,16 +13,21 @@ part 'isar_provider.g.dart';
 
 @Riverpod(keepAlive: true)
 Future<Isar> isar(IsarRef ref) async {
-  Directory dir;
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    dir = await getApplicationSupportDirectory();
-  } else {
-    dir = await getApplicationDocumentsDirectory();
+  String dirPath = '';
+  if (!kIsWeb) {
+    Directory dir;
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      dir = await getApplicationSupportDirectory();
+    } else {
+      dir = await getApplicationDocumentsDirectory();
+    }
+    
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    dirPath = dir.path;
   }
   
-  if (!await dir.exists()) {
-    await dir.create(recursive: true);
-  }
   final isarInstance = await Isar.open(
     [
       CourseSchema,
@@ -30,7 +36,7 @@ Future<Isar> isar(IsarRef ref) async {
       QuestionSchema,
       PlannerEventSchema,
     ],
-    directory: dir.path,
+    directory: dirPath,
   );
 
   // MIGRATION: Scrub stars from existing question titles and assign difficulty
