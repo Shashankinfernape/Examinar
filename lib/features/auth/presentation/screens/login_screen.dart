@@ -39,7 +39,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
               const SizedBox(height: 12),
               const Text(
-                \'Sign in seamlessly to sync your study data across all your devices securely.\',
+                'Sign in seamlessly to sync your study data across all your devices securely.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 16, height: 1.4),
               ),
