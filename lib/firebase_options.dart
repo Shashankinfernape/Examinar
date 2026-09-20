@@ -57,7 +57,6 @@ class DefaultFirebaseOptions {
     projectId: 'examinar-1b919',
     storageBucket: 'examinar-1b919.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyC4681s1HuI1MNGHCB2aCtpQxm_MvCA6uQ',
     appId: '1:217409476638:ios:b1ef8cd2388509e5ff360f',
@@ -66,7 +65,6 @@ class DefaultFirebaseOptions {
     storageBucket: 'examinar-1b919.firebasestorage.app',
     iosBundleId: 'com.examcommandcenter.examCommandCenter',
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyC4681s1HuI1MNGHCB2aCtpQxm_MvCA6uQ',
     appId: '1:217409476638:ios:b1ef8cd2388509e5ff360f',

@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -43,34 +45,56 @@ class AuthService {
 
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      await _ensureInitialized();
-      
-      // Trigger the authentication flow
-      final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
-      
-      // Obtain the auth details from the request
-      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-      final GoogleSignInAuthorizationClient authClient = googleUser.authorizationClient;
+      if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+        // Desktop platforms: use Firebase Auth's native provider flow
+        final provider = GoogleAuthProvider();
+        return await _auth.signInWithProvider(provider);
+      } else {
+        // Web, Android, iOS: use official google_sign_in package
+        await _ensureInitialized();
+        
+        // Trigger the authentication flow
+        final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
+        
+        // Obtain the auth details from the request
+        final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+        final GoogleSignInAuthorizationClient authClient = googleUser.authorizationClient;
 
-      GoogleSignInClientAuthorization? clientAuth = await authClient.authorizationForScopes([]);
-      clientAuth ??= await authClient.authorizeScopes([]);
+        GoogleSignInClientAuthorization? clientAuth = await authClient.authorizationForScopes([]);
+        clientAuth ??= await authClient.authorizeScopes([]);
 
-      // Create a new credential
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: clientAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+        // Create a new credential
+        final AuthCredential credential = GoogleAuthProvider.credential(
+          accessToken: clientAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
 
-      // Once signed in, return the UserCredential
-      return await _auth.signInWithCredential(credential);
+        // Once signed in, return the UserCredential
+        return await _auth.signInWithCredential(credential);
+      }
     } on GoogleSignInException {
       return null; // The user canceled the sign-in or other issue
+    } catch (e) {
+      print('Google Sign-In Error: $e');
+      return null;
     }
   }
 
   Future<void> signOut() async {
-    await _ensureInitialized();
-    await _googleSignIn.signOut();
-    await _auth.signOut();
+    try {
+      if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+        // Desktop platforms: only sign out of Firebase Auth
+        await _auth.signOut();
+      } else {
+        // Mobile/Web: sign out of both GoogleSignIn and Firebase Auth
+        await _ensureInitialized();
+        await _googleSignIn.signOut();
+        await _auth.signOut();
+      }
+    } catch (e) {
+      print('Sign out error: $e');
+      // Always ensure Firebase auth signs out even if google_sign_in fails
+      await _auth.signOut();
+    }
   }
 }
