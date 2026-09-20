@@ -174,21 +174,80 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   : const Text('Login', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
             ),
             const SizedBox(height: 16),
-            TextButton(
-              onPressed: _isLoading ? null : () => _submit(true),
-              style: TextButton.styleFrom(overlayColor: Colors.transparent),
-              child: RichText(
-                text: const TextSpan(
-                  text: "Don't have an account? ",
-                  style: TextStyle(color: Colors.white54, fontSize: 14, fontWeight: FontWeight.w500),
-                  children: [
-                    TextSpan(
-                      text: "Create one",
-                      style: TextStyle(color: AppTheme.samsungBlue, fontSize: 14, fontWeight: FontWeight.w800),
-                    ),
-                  ],
-                ),
+            ElevatedButton.icon(
+              onPressed: _isLoading ? null : () async {
+                setState(() {
+                  _isLoading = true;
+                  _errorMessage = null;
+                });
+                try {
+                  final authService = ref.read(authServiceProvider);
+                  final user = await authService.signInWithGoogle();
+                  if (user != null && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Logged in with Google!'), backgroundColor: AppTheme.completedColor),
+                    );
+                    context.pop();
+                  } else {
+                     setState(() => _isLoading = false);
+                  }
+                } catch (e) {
+                  setState(() {
+                    _isLoading = false;
+                    _errorMessage = 'Google Sign In failed: $e';
+                  });
+                }
+              },
+              icon: const Icon(Icons.login, color: Colors.black),
+              label: const Text('Continue with Google', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton(
+                  onPressed: _isLoading ? null : () async {
+                    final email = _emailController.text.trim();
+                    if (email.isEmpty || !email.contains('@')) {
+                      setState(() => _errorMessage = 'Enter your email above to reset password');
+                      return;
+                    }
+                    try {
+                      await ref.read(authServiceProvider).sendPasswordResetEmail(email);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Password reset email sent!'), backgroundColor: AppTheme.completedColor),
+                        );
+                      }
+                    } catch (e) {
+                      setState(() => _errorMessage = 'Failed to send reset email');
+                    }
+                  },
+                  style: TextButton.styleFrom(overlayColor: Colors.transparent),
+                  child: const Text('Forgot Password?', style: TextStyle(color: Colors.white54, fontSize: 14)),
+                ),
+                TextButton(
+                  onPressed: _isLoading ? null : () => _submit(true),
+                  style: TextButton.styleFrom(overlayColor: Colors.transparent),
+                  child: RichText(
+                    text: const TextSpan(
+                      text: "No account? ",
+                      style: TextStyle(color: Colors.white54, fontSize: 14, fontWeight: FontWeight.w500),
+                      children: [
+                        TextSpan(
+                          text: "Create one",
+                          style: TextStyle(color: AppTheme.samsungBlue, fontSize: 14, fontWeight: FontWeight.w800),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

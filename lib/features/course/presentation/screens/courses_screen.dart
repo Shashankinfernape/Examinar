@@ -7,8 +7,8 @@ import '../../data/repositories/question_repository.dart';
 import '../../domain/models/course.dart';
 import '../../domain/models/question.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
-import '../../../../core/database/isar_provider.dart';
-import 'package:isar/isar.dart';
+
+
 import 'package:intl/intl.dart';
 
 class CoursesScreen extends ConsumerWidget {
@@ -16,93 +16,91 @@ class CoursesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final coursesAsync = ref.watch(courseRepositoryProvider);
-    final isarAsync = ref.watch(isarProvider);
+    final repo = ref.watch(courseRepositoryProvider);
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isTablet = screenWidth > 720;
     final double hPad = isTablet ? 32.0 : 16.0;
 
     return Scaffold(
       backgroundColor: AppTheme.black,
-      body: coursesAsync.when(
-        data: (repo) => StreamBuilder<List<Course>>(
-          stream: repo.isar.courses.where().watch(fireImmediately: true),
-          builder: (context, snapshot) {
-            final courses = snapshot.data ?? [];
-            
-            return CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                // ONE UI DYNAMIC HEADER
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(hPad, 60, hPad, 24),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Subjects', style: GoogleFonts.spaceGrotesk(fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.textPrimary, letterSpacing: -1.5)),
-                            Text('Manage your mission objectives', style: GoogleFonts.spaceGrotesk(color: AppTheme.textSecondary, fontSize: 16, fontWeight: FontWeight.w600)),
-                          ],
-                        ),
-                      ],
-                    ),
+      body: StreamBuilder<List<Course>>(
+        stream: repo.watchAllCourses(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          final courses = snapshot.data ?? [];
+          
+          return CustomScrollView(
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              // ONE UI DYNAMIC HEADER
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(hPad, 60, hPad, 24),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Subjects', style: GoogleFonts.spaceGrotesk(fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.textPrimary, letterSpacing: -1.5)),
+                          Text('Manage your mission objectives', style: GoogleFonts.spaceGrotesk(color: AppTheme.textSecondary, fontSize: 16, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
+              ),
 
-                isarAsync.when(
-                    data: (isar) => SliverPadding(
-                      padding: EdgeInsets.symmetric(horizontal: hPad),
-                      sliver: isTablet
-                        ? SliverGrid(
-                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: (screenWidth ~/ 350).toInt().clamp(2, 6),
-                              mainAxisSpacing: 16,
-                              crossAxisSpacing: 16,
-                              mainAxisExtent: 130, 
-                            ),
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                if (index == courses.length) return _buildAddCourseCard(context, ref);
-                                return _buildOneUICourseCard(context, ref, courses[index], isar);
-                              },
-                              childCount: courses.length + 1,
-                            ),
-                          )
-                        : SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                if (index == courses.length) return Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildAddCourseCard(context, ref));
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: _buildOneUICourseCard(context, ref, courses[index], isar),
-                                );
-                              },
-                              childCount: courses.length + 1,
-                            ),
-                          ),
+              SliverPadding(
+                padding: EdgeInsets.symmetric(horizontal: hPad),
+                sliver: isTablet
+                  ? SliverGrid(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: (screenWidth ~/ 350).toInt().clamp(2, 6),
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 16,
+                        mainAxisExtent: 130, 
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          if (index == courses.length) return _buildAddCourseCard(context, ref);
+                          return _buildOneUICourseCard(context, ref, courses[index]);
+                        },
+                        childCount: courses.length + 1,
+                      ),
+                    )
+                  : SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          if (index == courses.length) return Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildAddCourseCard(context, ref));
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _buildOneUICourseCard(context, ref, courses[index]),
+                          );
+                        },
+                        childCount: courses.length + 1,
+                      ),
                     ),
-                    loading: () => const SliverFillRemaining(child: Center(child: CircularProgressIndicator())),
-                    error: (e, s) => SliverFillRemaining(child: Center(child: Text('Error: $e'))),
-                  ),
-                
-                const SliverToBoxAdapter(child: SizedBox(height: 120)),
-              ],
-            );
-          },
-        ),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, s) => Center(child: Text('Error: $e')),
+              ),
+              
+              const SliverToBoxAdapter(child: SizedBox(height: 120)),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildOneUICourseCard(BuildContext context, WidgetRef ref, Course course, Isar isar) {
+  Widget _buildOneUICourseCard(BuildContext context, WidgetRef ref, Course course) {
+    final qRepo = ref.watch(questionRepositoryProvider);
     return StreamBuilder<List<Question>>(
-      stream: isar.questions.where().filter().courseIdEqualTo(course.id).watch(fireImmediately: true),
+      stream: qRepo.watchQuestionsForCourse(course.id),
       builder: (context, qSnapshot) {
         final questions = qSnapshot.data ?? [];
         final completed = questions.where((q) => q.status == QuestionStatus.completed).length;
@@ -176,7 +174,7 @@ class CoursesScreen extends ConsumerWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(AppTheme.cardRadius),
           border: Border.all(color: Colors.white24, width: 1.5),
         ),
@@ -245,7 +243,7 @@ class CoursesScreen extends ConsumerWidget {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Abort')),
           TextButton(
             onPressed: () async {
-              final repo = await ref.read(courseRepositoryProvider.future);
+              final repo = ref.read(courseRepositoryProvider);
               await repo.deleteCourse(course.id);
               if (context.mounted) Navigator.pop(context);
             },
@@ -277,7 +275,7 @@ class CoursesScreen extends ConsumerWidget {
               const SizedBox(height: 16),
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
+                  color: Colors.white.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.white10),
                 ),
@@ -311,14 +309,12 @@ class CoursesScreen extends ConsumerWidget {
                     ),
                     onPressed: () async {
                       if (controller.text.isNotEmpty) {
-                        final repo = await ref.read(courseRepositoryProvider.future);
+                        final repo = ref.read(courseRepositoryProvider);
                         if (existingCourse == null) {
                           await repo.createCourse(controller.text);
                         } else {
-                          await repo.isar.writeTxn(() async {
-                            existingCourse.name = controller.text;
-                            await repo.isar.courses.put(existingCourse);
-                          });
+                          existingCourse.name = controller.text;
+                          await repo.updateCourse(existingCourse);
                         }
                         if (context.mounted) Navigator.pop(context);
                       }

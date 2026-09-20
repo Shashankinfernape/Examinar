@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../data/repositories/course_repository.dart';
 import '../../domain/models/question.dart';
-import '../../domain/models/course.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
@@ -57,7 +56,7 @@ class NoteImageItem extends NoteItem {
 }
 
 class QuestionDetailScreen extends ConsumerStatefulWidget {
-  final int questionId;
+  final String questionId;
 
   const QuestionDetailScreen({super.key, required this.questionId});
 
@@ -205,12 +204,12 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   }
 
   Future<void> _askChatGPT(Question question) async {
-    final cRepo = await ref.read(courseRepositoryProvider.future);
-    final course = await cRepo.isar.courses.get(question.courseId);
+    final cRepo = ref.read(courseRepositoryProvider);
+    final course = await cRepo.getCourse(question.courseId);
     final courseName = course?.name ?? 'the subject';
     
-    await question.unitLink.load();
-    final unitName = question.unitLink.value?.name ?? '';
+    final unit = await cRepo.getUnit(question.unitId);
+    final unitName = unit?.name ?? '';
     
     String marksStr = "13 marks";
     if (unitName.contains('Part A')) {
@@ -251,14 +250,14 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final repoAsync = ref.watch(questionRepositoryProvider);
+    
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isTablet = screenWidth > 900;
     final double hPad = isTablet ? 32.0 : 16.0;
 
-    return repoAsync.when(
-      data: (repo) => StreamBuilder<Question?>(
-        stream: repo.isar.questions.watchObject(widget.questionId, fireImmediately: true),
+    final repo = ref.watch(questionRepositoryProvider);
+    return StreamBuilder<Question?>(
+        stream: repo.watchQuestion(widget.questionId),
         builder: (context, snapshot) {
           final question = snapshot.data;
           if (question == null) return const Scaffold(body: Center(child: Text('Objective not found')));
@@ -271,30 +270,26 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
 
           String bannerTitle = question.title;
           String cleanTitle = question.title.replaceFirst(RegExp(r'^\[Unit \d+\]\s*'), '');
-          bool isPartA = false;
-          
+                    
           if (question.notes != null && question.notes!.toUpperCase().contains('PART C')) {
             bannerTitle = 'PART C';
           } else if (question.notes != null && question.notes!.toUpperCase().contains('PART B')) {
             bannerTitle = 'PART B';
           } else if (question.notes != null && question.notes!.toUpperCase().contains('PART A')) {
-            isPartA = true;
-            bannerTitle = 'PART A';
+                        bannerTitle = 'PART A';
           } else {
             final numMatch = RegExp(r'^(\d+)').firstMatch(cleanTitle);
             if (numMatch != null) {
               int qNum = int.parse(numMatch.group(1)!);
               if (qNum >= 1 && qNum <= 10) {
-                isPartA = true;
-                bannerTitle = 'PART A';
+                                bannerTitle = 'PART A';
               } else if (qNum >= 11 && qNum <= 15) {
                 bannerTitle = 'PART B';
               } else if (qNum >= 16) {
                 bannerTitle = 'PART C';
               }
             } else if (bannerTitle.startsWith(RegExp(r'^\[Unit \d+\]'))) {
-              isPartA = true;
-              bannerTitle = 'PART A';
+                            bannerTitle = 'PART A';
             }
           }
           
@@ -344,7 +339,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                           onTap: () => Navigator.pop(context),
                           child: Container(
                             padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), shape: BoxShape.circle),
+                            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.05), shape: BoxShape.circle),
                             child: const Icon(Icons.arrow_back_ios_new, size: 20, color: AppTheme.textPrimary),
                           ),
                         ),
@@ -413,7 +408,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                                     }
                                     _saveNotes(question);
                                   },
-                                  backgroundColor: Colors.white.withOpacity(0.12),
+                                  backgroundColor: Colors.white.withValues(alpha: 0.12),
                                 ),
                               ),
                             _buildActionPill(
@@ -431,7 +426,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                               icon: Icons.auto_awesome,
                               label: 'Generate',
                               foregroundColor: AppTheme.primaryColor,
-                              backgroundColor: AppTheme.primaryColor.withOpacity(0.12),
+                              backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
                               onPressed: () => _askChatGPT(question),
                             ),
                           ],
@@ -455,10 +450,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
             ),
           );
         },
-      ),
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, s) => Scaffold(body: Center(child: Text('Error: $e'))),
-    );
+      );
   }
 
   Future<void> _processDroppedItem(DropItem item, Future<void> Function(Uint8List bytes, String ext) onData) async {
@@ -509,7 +501,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     bool isLoading = false,
   }) {
     final fg = foregroundColor ?? Colors.white;
-    final bg = backgroundColor ?? Colors.white.withOpacity(0.08);
+    final bg = backgroundColor ?? Colors.white.withValues(alpha: 0.08);
 
     return TextButton(
       onPressed: isLoading ? null : onPressed,
@@ -560,18 +552,18 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           }
         }
         if (imagePath != null) {
-          final repo = await ref.read(questionRepositoryProvider.future);
-          await repo.isar.writeTxn(() async {
-            final q = await repo.isar.questions.get(question.id);
+          final repo = ref.read(questionRepositoryProvider);
+          
+            final q = await repo.getQuestion(question.id);
             if (q != null) {
               final images = List<String>.from(q.images ?? []);
               if (!images.contains(imagePath)) {
-                images.add(imagePath!);
+                images.add(imagePath);
                 q.images = images;
-                await repo.isar.collection<Question>().put(q);
+                await repo.updateQuestion(q);
               }
             }
-          });
+          
           if (mounted) setState(() {});
         }
       },
@@ -606,16 +598,16 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
                     _buildActionPill(
                       icon: Icons.delete_outline,
                       foregroundColor: AppTheme.urgentColor,
-                      backgroundColor: AppTheme.urgentColor.withOpacity(0.12),
+                      backgroundColor: AppTheme.urgentColor.withValues(alpha: 0.12),
                       onPressed: () async {
-                        final repo = await ref.read(questionRepositoryProvider.future);
-                        await repo.isar.writeTxn(() async {
-                          final q = await repo.isar.questions.get(question.id);
+                        final repo = ref.read(questionRepositoryProvider);
+                        
+                          final q = await repo.getQuestion(question.id);
                           if (q != null) {
                             q.images = [];
-                            await repo.isar.collection<Question>().put(q);
+                            await repo.updateQuestion(q);
                           }
-                        });
+                        
                         if (mounted) setState(() {});
                       },
                     ),
@@ -712,18 +704,18 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
           await _processDroppedItem(item, (bytes, ext) async {
             try {
               final destPath = await _saveFilePermanently(bytes, ext);
-              final repo = await ref.read(questionRepositoryProvider.future);
-              await repo.isar.writeTxn(() async {
-                final q = await repo.isar.questions.get(question.id);
+              final repo = ref.read(questionRepositoryProvider);
+              
+                final q = await repo.getQuestion(question.id);
                 if (q != null) {
                   final images = List<String>.from(q.images ?? []);
                   if (!images.contains(destPath)) {
                     images.add(destPath);
                     q.images = images;
-                    await repo.isar.collection<Question>().put(q);
+                    await repo.updateQuestion(q);
                   }
                 }
-              });
+              
               if (mounted) setState(() {});
             } catch (e) {
               debugPrint('Failed to save dropped file into resources: $e');
@@ -765,7 +757,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       width: double.infinity,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Image.file(
@@ -894,13 +886,13 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
     Color thumbColor;
     switch (question.status) {
       case QuestionStatus.completed:
-        thumbColor = AppTheme.completedColor.withOpacity(0.25);
+        thumbColor = AppTheme.completedColor.withValues(alpha: 0.25);
         break;
       case QuestionStatus.revisionNeeded:
-        thumbColor = AppTheme.inProgressColor.withOpacity(0.25);
+        thumbColor = AppTheme.inProgressColor.withValues(alpha: 0.25);
         break;
       case QuestionStatus.incomplete:
-        thumbColor = Colors.white.withOpacity(0.2);
+        thumbColor = Colors.white.withValues(alpha: 0.2);
         break;
     }
 
@@ -908,7 +900,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
       width: double.infinity,
       height: 40,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
+        color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(100),
       ),
       child: Stack(
@@ -1002,7 +994,7 @@ class _QuestionDetailScreenState extends ConsumerState<QuestionDetailScreen> {
   }
 
   void _updateStatus(QuestionStatus status) async {
-    final repo = await ref.read(questionRepositoryProvider.future);
+    final repo = ref.read(questionRepositoryProvider);
     await repo.updateStatus(widget.questionId, status);
     HapticFeedback.mediumImpact();
   }
@@ -1349,18 +1341,18 @@ Write-Output 'EMPTY'
   Future<void> _addAssetViaPicker(Question question) async {
     final paths = await _pickImagesAdaptive();
     if (paths.isNotEmpty) {
-      final repo = await ref.read(questionRepositoryProvider.future);
-      await repo.isar.writeTxn(() async {
-        final q = await repo.isar.questions.get(question.id);
+      final repo = ref.read(questionRepositoryProvider);
+      
+        final q = await repo.getQuestion(question.id);
         if (q != null) {
           final images = List<String>.from(q.images ?? []);
           for (final p in paths) {
             if (!images.contains(p)) images.add(p);
           }
           q.images = images;
-          await repo.isar.collection<Question>().put(q);
+          await repo.updateQuestion(q);
         }
-      });
+      
       HapticFeedback.lightImpact();
       if (mounted) setState(() {});
     }
@@ -2224,7 +2216,7 @@ Write-Output 'EMPTY'
     setState(() {});
   }
 
-  void _insertImageAtNotebookEnd(dynamic dragData, int questionId) {
+  void _insertImageAtNotebookEnd(dynamic dragData, String questionId) {
     String? imagePath;
     String? draggedId;
 
@@ -2439,7 +2431,7 @@ Write-Output 'EMPTY'
           height: isHovered ? 56 : (_isDraggingImage ? 40 : 16),
           margin: const EdgeInsets.only(top: 8),
           decoration: BoxDecoration(
-            color: isHovered ? Colors.white.withOpacity(0.08) : Colors.transparent,
+            color: isHovered ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
             border: isHovered
                 ? Border.all(color: Colors.white, width: 1.5)
@@ -2470,7 +2462,7 @@ Write-Output 'EMPTY'
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.black.withOpacity(0.4),
+        color: AppTheme.black.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -2541,18 +2533,18 @@ Write-Output 'EMPTY'
             try {
               final destPath = await _saveFilePermanently(bytes, ext);
 
-              final repo = await ref.read(questionRepositoryProvider.future);
-              await repo.isar.writeTxn(() async {
-                final q = await repo.isar.questions.get(question.id);
+              final repo = ref.read(questionRepositoryProvider);
+              
+                final q = await repo.getQuestion(question.id);
                 if (q != null) {
                   final images = List<String>.from(q.images ?? []);
                   if (!images.contains(destPath)) {
                     images.add(destPath);
                     q.images = images;
-                    await repo.isar.collection<Question>().put(q);
+                    await repo.updateQuestion(q);
                   }
                 }
-              });
+              
 
               if (_hoveredTextItemId != null && _hoveredCharIndex != null) {
                 final targetItem = _noteItems.firstWhere(
@@ -2847,18 +2839,18 @@ Write-Output 'EMPTY'
             constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
             tooltip: 'Copy to Answer Resources',
             onPressed: () async {
-              final repo = await ref.read(questionRepositoryProvider.future);
-              await repo.isar.writeTxn(() async {
-                final q = await repo.isar.questions.get(question.id);
+              final repo = ref.read(questionRepositoryProvider);
+              
+                final q = await repo.getQuestion(question.id);
                 if (q != null) {
                   final images = List<String>.from(q.images ?? []);
                   if (!images.contains(item.imagePath)) {
                     images.add(item.imagePath);
                     q.images = images;
-                    await repo.isar.collection<Question>().put(q);
+                    await repo.updateQuestion(q);
                   }
                 }
-              });
+              
               HapticFeedback.lightImpact();
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -3017,7 +3009,7 @@ Write-Output 'EMPTY'
                       leading: Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: AppTheme.samsungBlue.withOpacity(0.15),
+                          color: AppTheme.samsungBlue.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.share_rounded, color: AppTheme.samsungBlue, size: 20),
@@ -3033,7 +3025,8 @@ Write-Output 'EMPTY'
                       onTap: () async {
                         Navigator.pop(sheetContext);
                         try {
-                          await Share.shareXFiles(
+                          // ignore: deprecated_member_use
+                  await Share.shareXFiles(
                             [XFile(imagePath)],
                             text: question.title,
                           );
@@ -3054,7 +3047,7 @@ Write-Output 'EMPTY'
                       leading: Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.08),
+                          color: Colors.white.withValues(alpha: 0.08),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.fullscreen_rounded, color: Colors.white, size: 20),
@@ -3079,7 +3072,7 @@ Write-Output 'EMPTY'
                       leading: Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.08),
+                          color: Colors.white.withValues(alpha: 0.08),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.copy_rounded, color: Colors.white, size: 20),
@@ -3119,7 +3112,7 @@ Write-Output 'EMPTY'
                         leading: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: AppTheme.samsungBlue.withOpacity(0.15),
+                            color: AppTheme.samsungBlue.withValues(alpha: 0.15),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(Icons.note_add_outlined, color: AppTheme.samsungBlue, size: 20),
@@ -3181,7 +3174,7 @@ Write-Output 'EMPTY'
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(vertical: 10),
                                       decoration: BoxDecoration(
-                                        color: isCur ? Colors.white : Colors.white.withOpacity(0.06),
+                                        color: isCur ? Colors.white : Colors.white.withValues(alpha: 0.06),
                                         borderRadius: BorderRadius.circular(10),
                                         border: Border.all(
                                           color: isCur ? Colors.white : Colors.white24,
@@ -3216,7 +3209,7 @@ Write-Output 'EMPTY'
                       leading: Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: AppTheme.urgentColor.withOpacity(0.15),
+                          color: AppTheme.urgentColor.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.delete_outline_rounded, color: AppTheme.urgentColor, size: 20),
@@ -3257,7 +3250,7 @@ Write-Output 'EMPTY'
       context,
       PageRouteBuilder(
         opaque: false,
-        barrierColor: Colors.black.withOpacity(0.92),
+        barrierColor: Colors.black.withValues(alpha: 0.92),
         pageBuilder: (context, anim1, anim2) {
           return Scaffold(
             backgroundColor: Colors.transparent,
@@ -3304,21 +3297,21 @@ Write-Output 'EMPTY'
 
   void _saveNotes(Question question, {String? text, bool silent = false}) async {
     final textToSave = text ?? _serializeNotes();
-    final repo = await ref.read(questionRepositoryProvider.future);
-    await repo.isar.writeTxn(() async {
+    final repo = ref.read(questionRepositoryProvider);
+    
       question.userNotes = textToSave;
-      await repo.isar.collection<Question>().put(question);
-    });
+      await repo.updateQuestion(question);
+    
     if (!silent) HapticFeedback.vibrate();
   }
 
   void _saveQuestionNotes(Question question, {String? text, bool silent = false}) async {
     final textToSave = text ?? _questionController.text;
-    final repo = await ref.read(questionRepositoryProvider.future);
-    await repo.isar.writeTxn(() async {
+    final repo = ref.read(questionRepositoryProvider);
+    
       question.notes = textToSave;
-      await repo.isar.collection<Question>().put(question);
-    });
+      await repo.updateQuestion(question);
+    
     if (!silent) HapticFeedback.vibrate();
   }
 
@@ -3373,16 +3366,16 @@ Write-Output 'EMPTY'
       if (image != null) {
         final bytes = await image.readAsBytes();
         final savedPath = await _saveFilePermanently(bytes, 'jpg');
-        final repo = await ref.read(questionRepositoryProvider.future);
-        await repo.isar.writeTxn(() async {
-          final q = await repo.isar.questions.get(question.id);
+        final repo = ref.read(questionRepositoryProvider);
+        
+          final q = await repo.getQuestion(question.id);
           if (q != null) {
             final images = List<String>.from(q.images ?? []);
             images.add(savedPath);
             q.images = images;
-            await repo.isar.questions.put(q);
+            await repo.updateQuestion(q);
           }
-        });
+        
         HapticFeedback.vibrate();
         if (mounted) setState(() {});
       }
@@ -3397,18 +3390,18 @@ Write-Output 'EMPTY'
     try {
       final paths = await _ingestClipboardImages();
       if (paths.isNotEmpty) {
-        final repo = await ref.read(questionRepositoryProvider.future);
-        await repo.isar.writeTxn(() async {
-          final q = await repo.isar.questions.get(question.id);
+        final repo = ref.read(questionRepositoryProvider);
+        
+          final q = await repo.getQuestion(question.id);
           if (q != null) {
             final images = List<String>.from(q.images ?? []);
             for (final p in paths) {
               if (!images.contains(p)) images.add(p);
             }
             q.images = images;
-            await repo.isar.collection<Question>().put(q);
+            await repo.updateQuestion(q);
           }
-        });
+        
         HapticFeedback.vibrate();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -3440,15 +3433,15 @@ Write-Output 'EMPTY'
   }
 
   void _removeAttachment(Question question, int index) async {
-    final repo = await ref.read(questionRepositoryProvider.future);
-    await repo.isar.writeTxn(() async {
-      final q = await repo.isar.questions.get(question.id);
+    final repo = ref.read(questionRepositoryProvider);
+    
+      final q = await repo.getQuestion(question.id);
       if (q != null) {
         final images = List<String>.from(q.images ?? []);
         images.removeAt(index);
         q.images = images;
-        await repo.isar.questions.put(q);
+        await repo.updateQuestion(q);
       }
-    });
+    
   }
 }

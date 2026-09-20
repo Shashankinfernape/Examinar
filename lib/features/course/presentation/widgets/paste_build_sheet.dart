@@ -40,7 +40,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
   bool _isProceedProcessing = false; // true while sending to ChatGPT / parsing
   bool _isDragging = false;
   bool _promptSent = false; // true after ChatGPT is opened
-  List<String> _attachments = [];
+  final List<String> _attachments = [];
   int _automationCounter = 0; // Token for cancelling PC automation loops
   int _resetId = 0;           // Incremented on every Reset — kills stale async work
 
@@ -101,7 +101,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         setState(() {
           _textController.text = text;
         });
-        if (mounted) {
+        if (mounted && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('📋 Pasted text from clipboard!'),
@@ -603,7 +603,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
                             _gptResponseController.text = data.text!;
                           });
                         } else {
-                          if (mounted) {
+                          if (mounted && context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('Clipboard is empty!'), backgroundColor: Colors.orange),
                             );
@@ -850,62 +850,74 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         }
       }
 
-      final qRepo = await ref.read(questionRepositoryProvider.future);
-      final cRepo = await ref.read(courseRepositoryProvider.future);
+      final qRepo = ref.read(questionRepositoryProvider);
+      final cRepo = ref.read(courseRepositoryProvider);
 
-      final currentCourse = widget.course ?? widget.unit?.course.value;
+      Course? currentCourse = widget.course;
+      if (currentCourse == null && widget.unit != null) {
+        currentCourse = await cRepo.getCourse(widget.unit!.courseId);
+      }
       if (currentCourse == null) return;
 
-      await currentCourse.units.load();
-      var units = currentCourse.units.toList()
+      final unitsSnapshot = await cRepo.firestore
+          .collection('users')
+          .doc(cRepo.uid)
+          .collection('units')
+          .where('courseId', isEqualTo: currentCourse.id)
+          .get();
+      var units = unitsSnapshot.docs
+          .map((d) => Unit.fromMap(d.data(), d.id))
+          .toList()
         ..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
 
       if (units.isEmpty && widget.unit == null) {
         // Dynamically create the 7-Unit Structure
-        await cRepo.isar.writeTxn(() async {
-          final unitNames = [
-            'Part A',
-            'Part B | Unit 1',
-            'Part B | Unit 2',
-            'Part B | Unit 3',
-            'Part B | Unit 4',
-            'Part B | Unit 5',
-            'Part C',
-          ];
+        final unitNames = [
+          'Part A',
+          'Part B | Unit 1',
+          'Part B | Unit 2',
+          'Part B | Unit 3',
+          'Part B | Unit 4',
+          'Part B | Unit 5',
+          'Part C',
+        ];
 
-          for (var i = 0; i < unitNames.length; i++) {
-            final unit = Unit()
-              ..name = unitNames[i]
-              ..index = i + 1;
-
-            await cRepo.isar.units.put(unit);
-            currentCourse.units.add(unit);
-          }
-          await currentCourse.units.save();
-        });
-        units = currentCourse.units.toList()
-          ..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+        final batch = cRepo.firestore.batch();
+        final unitsRef = cRepo.firestore.collection('users').doc(cRepo.uid).collection('units');
+        
+        for (var i = 0; i < unitNames.length; i++) {
+          final doc = unitsRef.doc();
+          final u = Unit(id: doc.id, name: unitNames[i], index: i + 1, courseId: currentCourse.id);
+          batch.set(doc, u.toMap());
+          units.add(u);
+        }
+        await batch.commit();
       }
 
+      final qBatch = qRepo.firestore.batch();
+      final questionsRef = qRepo.firestore.collection('users').doc(qRepo.uid).collection('questions');
+
       for (final q in parsedQuestions) {
-        final targetUnit =
-            widget.unit ??
+        final targetUnit = widget.unit ??
             (q['unitIndex'] <= units.length
                 ? units[q['unitIndex'] - 1]
                 : units.last);
 
-        await qRepo.isar.writeTxn(() async {
-          final question =
-              qRepo.createQuestionObject(q['title']!, targetUnit.id)
-                ..notes = q['content']!
-                ..courseId = currentCourse.id
-                ..difficulty = q['difficulty'] as int;
+        final docRef = questionsRef.doc();
+        final qTitle = qRepo.createQuestionObject(q['title']!, targetUnit.id).title;
+        final question = Question(
+          id: docRef.id,
+          title: qTitle,
+          courseId: currentCourse.id,
+          unitId: targetUnit.id,
+          difficulty: q['difficulty'] as int,
+          notes: q['content'] as String,
+          createdAt: DateTime.now(),
+        );
 
-          await qRepo.isar.collection<Question>().put(question);
-          question.unitLink.value = targetUnit;
-          await question.unitLink.save();
-        });
+        qBatch.set(docRef, question.toMap());
       }
+      await qBatch.commit();
 
       final importantTopics = parsedQuestions
           .map((q) => q['title'])
@@ -915,11 +927,9 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
           "STRATEGY: Focus on $importantTopics. High probability of Part B appearance. "
           "Map these concepts to diagrams for maximum marks.";
 
-      await cRepo.isar.writeTxn(() async {
-        currentCourse.examStrategy =
-            "${currentCourse.examStrategy ?? ""}\n\n$strategy";
-        await cRepo.isar.collection<Course>().put(currentCourse);
-      });
+      currentCourse.examStrategy =
+          "${currentCourse.examStrategy ?? ""}\n\n$strategy";
+      await cRepo.updateCourse(currentCourse);
 
       if (mounted && !widget.isEmbedded) Navigator.pop(context);
     } catch (e, stackTrace) {
@@ -985,7 +995,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
               onTap: () async {
                 Navigator.pop(context);
                 final success = await _shareDirectlyToApp(imagePaths, preprompt, 'com.google.android.apps.bard');
-                if (!success && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gemini not found.')));
+                if (!success && mounted && context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gemini not found.')));
               },
             ),
             ListTile(
@@ -994,7 +1004,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
               onTap: () async {
                 Navigator.pop(context);
                 final success = await _shareDirectlyToApp(imagePaths, preprompt, 'com.anthropic.claude');
-                if (!success && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Claude not found.')));
+                if (!success && mounted && context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Claude not found.')));
               },
             ),
             ListTile(
@@ -1003,7 +1013,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
               onTap: () async {
                 Navigator.pop(context);
                 final success = await _shareDirectlyToApp(imagePaths, preprompt, 'ai.perplexity.app.android');
-                if (!success && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Perplexity not found.')));
+                if (!success && mounted && context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Perplexity not found.')));
               },
             ),
           ],
@@ -1035,7 +1045,7 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         
         // Copy prompt to clipboard because some AI apps (like ChatGPT) drop the text when receiving an image intent
         await Clipboard.setData(const ClipboardData(text: preprompt));
-        if (mounted) {
+        if (mounted && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Prompt copied! Please paste prompt into the AI app.')),
           );
@@ -1043,10 +1053,12 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
 
         // ⚠️ CLEAR SPINNER NOW — before startActivity, because when ChatGPT opens the app
         // is backgrounded and the finally block may not render before the user returns.
-        if (mounted) setState(() {
-          _isProceedProcessing = false;
-          _isLoadingFiles = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isProceedProcessing = false;
+            _isLoadingFiles = false;
+          });
+        }
         
         // Launch ChatGPT directly. startActivity() returns immediately in Kotlin.
         final success = await _shareDirectlyToApp(imagePaths, preprompt, 'com.openai.chatgpt');
@@ -1060,22 +1072,25 @@ class _PasteBuildSheetState extends ConsumerState<PasteBuildSheet> {
         if (!mounted) return;
         setState(() => _promptSent = true);
         // Clear spinner before handing off to iOS share sheet
-        if (mounted) setState(() {
-          _isProceedProcessing = false;
-          _isLoadingFiles = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isProceedProcessing = false;
+            _isLoadingFiles = false;
+          });
+        }
         try {
           await Clipboard.setData(const ClipboardData(text: preprompt));
-          if (mounted) {
+          if (mounted && context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Prompt copied! Sending image... Please paste prompt in ChatGPT.')),
             );
           }
           final xFiles = imagePaths.map((p) => XFile(p)).toList();
+          // ignore: deprecated_member_use
           await Share.shareXFiles(xFiles, subject: 'Exam Paper');
         } catch (e) {
           debugPrint('Share failed: $e');
-          if (mounted) {
+          if (mounted && context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Share failed: $e')),
             );

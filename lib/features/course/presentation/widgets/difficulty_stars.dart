@@ -24,7 +24,7 @@ class DifficultyStars extends ConsumerWidget {
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () async {
-              final repo = await ref.read(questionRepositoryProvider.future);
+              final repo = ref.read(questionRepositoryProvider);
               await repo.updateDifficulty(question.id, starVal);
             },
             child: Padding(

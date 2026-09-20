@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:exam_command_center/features/course/data/repositories/course_repository.dart';
+import 'package:exam_command_center/features/planner/data/repositories/planner_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'dart:math' as math;
-import 'package:isar/isar.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import '../../domain/models/planner_event.dart';
 import '../../../course/domain/models/course.dart';
-import 'package:exam_command_center/core/database/isar_provider.dart';
+
 import 'package:exam_command_center/core/theme/app_theme.dart';
 import 'day_schedule_screen.dart';
 
@@ -22,49 +23,51 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isarAsync = ref.watch(isarProvider);
+    final plannerRepo = ref.watch(plannerRepositoryProvider);
+    final courseRepo = ref.watch(courseRepositoryProvider);
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isTablet = screenWidth > 720;
 
     return Scaffold(
       backgroundColor: AppTheme.black,
       resizeToAvoidBottomInset: false, // Prevents background calendar from overflowing when keyboard opens
-      body: isarAsync.when(
-        data: (isar) => StreamBuilder<void>(
-          stream: isar.plannerEvents.watchLazy(fireImmediately: true),
-          builder: (context, _) => FutureBuilder(
-            future: Future.wait([
-              isar.plannerEvents.where().findAll(),
-              isar.courses.where().findAll(),
-            ]),
-            builder: (context, AsyncSnapshot<List<dynamic>> snapshot) {
-              final events =
-                  (snapshot.data?[0] as List<PlannerEvent>?) ?? [];
-              final courses =
-                  (snapshot.data?[1] as List<Course>?) ?? [];
-              return _buildBody(events, courses, isTablet, isar);
-            },
-          ),
-        ),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, s) => Center(child: Text('Error: $e')),
+      body: StreamBuilder<List<PlannerEvent>>(
+        stream: plannerRepo.watchAllEvents(),
+        builder: (context, eventSnapshot) {
+          return StreamBuilder<List<Course>>(
+            stream: courseRepo.watchAllCourses(),
+            builder: (context, courseSnapshot) {
+              if (eventSnapshot.connectionState == ConnectionState.waiting || courseSnapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (eventSnapshot.hasError || courseSnapshot.hasError) {
+                return Center(child: Text('Error: ${eventSnapshot.error ?? courseSnapshot.error}'));
+              }
+              final events = eventSnapshot.data ?? [];
+              final courses = courseSnapshot.data ?? [];
+              return _buildBody(events, courses, isTablet);
+            }
+          );
+        }
       ),
     );
   }
 
   Widget _buildBody(List<PlannerEvent> events, List<Course> courses,
-      bool isTablet, Isar isar) {
+      bool isTablet) {
     final hPad = isTablet ? 32.0 : 16.0;
 
     // Only show Course Exams on the calendar (Data Isolation)
     final allEvents = [
       ...courses
           .where((c) => c.examDate != null)
-          .map((c) => PlannerEvent()
-            ..title = 'EXAM: ${c.name}'
-            ..startTime = c.examDate!
-            ..endTime = c.examDate!.add(const Duration(hours: 3))
-            ..colorHex = AppTheme.urgentColor.value.toRadixString(16)),
+          .map((c) => PlannerEvent(
+            id: c.id,
+            title: 'EXAM: ${c.name}',
+            startTime: c.examDate!,
+            endTime: c.examDate!.add(const Duration(hours: 3)),
+            colorHex: (AppTheme.urgentColor.a.toInt() << 24 | AppTheme.urgentColor.r.toInt() << 16 | AppTheme.urgentColor.g.toInt() << 8 | AppTheme.urgentColor.b.toInt()).toRadixString(16),
+          )),
     ];
 
     // Index by date key
@@ -184,8 +187,8 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: dayEvents.take(3).map((e) {
-                      final String hexString = e.colorHex ?? '0xFF3E82F7';
-                      final Color markerColor = Color(int.tryParse(hexString) ?? 0xFF3E82F7);
+                      final String hexString = e.colorHex ?? 'FF3E82F7';
+                      final Color markerColor = Color(int.tryParse(hexString.replaceFirst('0x', ''), radix: 16) ?? 0xFF3E82F7);
                       return Container(
                         width: 6,
                         height: 6,
@@ -204,7 +207,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                 context.push('/planner/day');
               },
               onDayLongPressed: (selectedDay, focusedDay) {
-                _showDayEditor(context, selectedDay, byDay, isar);
+                _showDayEditor(context, selectedDay, byDay);
               },
             ))),
             ),
@@ -218,7 +221,7 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
   String _key(DateTime d) => '${d.year}-${d.month}-${d.day}';
 
   void _showDayEditor(BuildContext context, DateTime date,
-      Map<String, List<PlannerEvent>> byDay, Isar isar) {
+      Map<String, List<PlannerEvent>> byDay) {
     final dayEvents = (byDay[_key(date)] ?? []).where((e) => !e.title.startsWith('EXAM:')).toList();
     showDialog(
       context: context,
@@ -238,7 +241,6 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
               child: _DayEditorSheet(
                 date: date,
                 existingEvents: dayEvents,
-                isar: isar,
               ),
             ),
           ),
@@ -251,20 +253,18 @@ class _PlannerScreenState extends ConsumerState<PlannerScreen> {
 
 // ── Day Editor Sheet (long press) ───────────────────────────────────────────
 
-class _DayEditorSheet extends StatefulWidget {
+class _DayEditorSheet extends ConsumerStatefulWidget {
   final DateTime date;
   final List<PlannerEvent> existingEvents;
-  final Isar isar;
   const _DayEditorSheet(
       {required this.date,
-      required this.existingEvents,
-      required this.isar});
+      required this.existingEvents});
 
   @override
-  State<_DayEditorSheet> createState() => _DayEditorSheetState();
+  ConsumerState<_DayEditorSheet> createState() => _DayEditorSheetState();
 }
 
-class _DayEditorSheetState extends State<_DayEditorSheet> {
+class _DayEditorSheetState extends ConsumerState<_DayEditorSheet> {
   final _ctrl = TextEditingController();
   bool _isExam = true;
   bool _saving = false;
@@ -278,7 +278,7 @@ class _DayEditorSheetState extends State<_DayEditorSheet> {
   }
 
   Future<void> _loadCourses() async {
-    final courses = await widget.isar.courses.where().findAll();
+    final courses = await ref.read(courseRepositoryProvider).getAllCourses();
     if (mounted) {
       setState(() {
         _courses = courses;
@@ -293,43 +293,40 @@ class _DayEditorSheetState extends State<_DayEditorSheet> {
     if (_isExam) {
       if (_selectedCourse == null) return;
       setState(() => _saving = true);
-      await widget.isar.writeTxn(() async {
-        _selectedCourse!.examDate = widget.date;
-        await widget.isar.courses.put(_selectedCourse!);
-      });
+      _selectedCourse!.examDate = widget.date;
+      await ref.read(courseRepositoryProvider).updateCourse(_selectedCourse!);
       if (mounted) Navigator.pop(context);
     } else {
       if (_ctrl.text.trim().isEmpty) return;
       setState(() => _saving = true);
       final name = _ctrl.text.trim();
-      final event = PlannerEvent()
-        ..title = name
-        ..startTime = DateTime(widget.date.year, widget.date.month, widget.date.day, 9)
-        ..endTime = DateTime(widget.date.year, widget.date.month, widget.date.day, 12)
-        ..colorHex = Colors.white.value.toRadixString(16); 
-      await widget.isar.writeTxn(
-          () async => widget.isar.plannerEvents.put(event));
+      final event = PlannerEvent(
+        id: '',
+        title: name,
+        startTime: DateTime(widget.date.year, widget.date.month, widget.date.day, 9),
+        endTime: DateTime(widget.date.year, widget.date.month, widget.date.day, 12),
+        colorHex: (Colors.white.a.toInt() << 24 | Colors.white.r.toInt() << 16 | Colors.white.g.toInt() << 8 | Colors.white.b.toInt()).toRadixString(16),
+      );
+      await ref.read(plannerRepositoryProvider).addEvent(event);
       if (mounted) Navigator.pop(context);
     }
   }
 
   Future<void> _clearDay() async {
     setState(() => _saving = true);
-    final courses = await widget.isar.courses.where().findAll();
+    final courses = await ref.read(courseRepositoryProvider).getAllCourses();
     final examCourses = courses.where((c) => c.examDate?.year == widget.date.year && c.examDate?.month == widget.date.month && c.examDate?.day == widget.date.day).toList();
     
-    final allEvents = await widget.isar.plannerEvents.where().findAll();
+    final allEvents = await ref.read(plannerRepositoryProvider).getAllEvents();
     final dayEvents = allEvents.where((e) => e.startTime.year == widget.date.year && e.startTime.month == widget.date.month && e.startTime.day == widget.date.day).toList();
     
-    await widget.isar.writeTxn(() async {
-      for (var c in examCourses) {
-        c.examDate = null;
-        await widget.isar.courses.put(c);
-      }
-      for (var e in dayEvents) {
-        await widget.isar.plannerEvents.delete(e.id);
-      }
-    });
+    for (var c in examCourses) {
+      c.examDate = null;
+      await ref.read(courseRepositoryProvider).updateCourse(c);
+    }
+    for (var e in dayEvents) {
+      await ref.read(plannerRepositoryProvider).deleteEvent(e.id);
+    }
     if (mounted) Navigator.pop(context);
   }
 
@@ -426,7 +423,7 @@ class _DayEditorSheetState extends State<_DayEditorSheet> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.05),
+                                color: Colors.white.withValues(alpha: 0.05),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(color: Colors.white24),
                               ),
@@ -444,7 +441,7 @@ class _DayEditorSheetState extends State<_DayEditorSheet> {
                     else
                       Container(
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
+                          color: Colors.white.withValues(alpha: 0.05),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: Colors.white24),
                         ),
@@ -475,7 +472,7 @@ class _DayEditorSheetState extends State<_DayEditorSheet> {
                               color: Colors.white54,
                               letterSpacing: 1.5)),
                       const SizedBox(height: 12),
-                      ...widget.existingEvents.map((e) => _ExistingEventRow(event: e, isar: widget.isar)),
+                      ...widget.existingEvents.map((e) => _ExistingEventRow(event: e)),
                       const SizedBox(height: 24),
                     ],
 
@@ -553,13 +550,12 @@ class _TypeBtn extends StatelessWidget {
       );
 }
 
-class _ExistingEventRow extends StatelessWidget {
+class _ExistingEventRow extends ConsumerWidget {
   final PlannerEvent event;
-  final Isar isar;
-  const _ExistingEventRow({required this.event, required this.isar});
+  const _ExistingEventRow({required this.event});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -577,7 +573,7 @@ class _ExistingEventRow extends StatelessWidget {
                       fontWeight: FontWeight.w600))),
           GestureDetector(
             onTap: () async {
-              await isar.writeTxn(() async => isar.plannerEvents.delete(event.id));
+              await ref.read(plannerRepositoryProvider).deleteEvent(event.id);
               if (context.mounted) Navigator.pop(context);
             },
             child: const Icon(Icons.close, size: 18, color: Colors.white54),

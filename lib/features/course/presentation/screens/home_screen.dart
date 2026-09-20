@@ -3,14 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:isar/isar.dart';
+
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import '../../domain/models/question.dart';
-import '../../domain/models/course.dart';
-import '../../data/repositories/course_repository.dart';
+import '../../data/repositories/question_repository.dart';
+import '../../../planner/data/repositories/planner_repository.dart';
+
+
 import 'package:exam_command_center/core/theme/app_theme.dart';
-import 'package:exam_command_center/core/database/isar_provider.dart';
+
 import 'package:exam_command_center/features/planner/domain/models/planner_event.dart';
 import 'package:exam_command_center/features/planner/presentation/widgets/task_action_sheet.dart';
 import 'package:exam_command_center/core/settings/settings_provider.dart';
@@ -24,9 +26,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
-  double _headerOpacity = 1.0;
-  Timer? _minuteTimer;
-  final Set<int> _dismissedTaskIds = {};
+    Timer? _minuteTimer;
+  final Set<String> _dismissedTaskIds = {};
 
   @override
   void initState() {
@@ -47,7 +48,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
-    final isarAsync = ref.watch(isarProvider);
+    final plannerRepo = ref.watch(plannerRepositoryProvider);
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isTablet = screenWidth > 900;
     final double hPad = isTablet ? 32.0 : 16.0;
@@ -60,54 +61,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       greeting = 'Good afternoon';
     }
 
-    return isarAsync.when(
-      data: (isar) {
         final now = DateTime.now();
-        final startOfDay = DateTime(now.year, now.month, now.day);
-        final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
-        return StreamBuilder<List<PlannerEvent>>(
-          stream: isar.plannerEvents.where().filter().startTimeBetween(startOfDay, endOfDay).watch(fireImmediately: true),
-          builder: (context, snapshot) {
-            final events = snapshot.data ?? [];
-            final filteredEvents = events.where((e) => !e.title.startsWith('EXAM:')).toList();
-            final pendingTasks = filteredEvents.where((e) => !e.isCompleted && !_dismissedTaskIds.contains(e.id)).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
-            final completedTasks = filteredEvents.where((e) => e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+    return StreamBuilder<List<PlannerEvent>>(
+      stream: plannerRepo.watchAllEvents(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(backgroundColor: AppTheme.black, body: Center(child: Text('Error: ${snapshot.error}')));
+        }
+        if (!snapshot.hasData) {
+          return const Scaffold(backgroundColor: AppTheme.black, body: SizedBox.shrink());
+        }
+        
+        final allEvents = snapshot.data ?? [];
+        final events = allEvents.where((e) => e.startTime.isAfter(startOfDay.subtract(const Duration(seconds: 1))) && e.startTime.isBefore(endOfDay.add(const Duration(seconds: 1)))).toList();
+        
+        final filteredEvents = events.where((e) => !e.title.startsWith('EXAM:')).toList();
+        final pendingTasks = filteredEvents.where((e) => !e.isCompleted && !_dismissedTaskIds.contains(e.id)).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+        final completedTasks = filteredEvents.where((e) => e.isCompleted).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
 
-            return Scaffold(
-              backgroundColor: AppTheme.black,
-              body: CustomScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  SliverSafeArea(
-                    bottom: false,
-                    sliver: SliverPadding(
-                      padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 24),
-                      sliver: SliverToBoxAdapter(
-                        child: isTablet 
-                            ? _buildTabletLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length, greeting, settings.userName)
-                            : _buildPhoneLayout(isar, pendingTasks, completedTasks, filteredEvents.length, completedTasks.length, greeting, settings.userName),
-                      ),
-                    ),
+        return Scaffold(
+          backgroundColor: AppTheme.black,
+          body: CustomScrollView(
+            controller: _scrollController,
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              SliverSafeArea(
+                bottom: false,
+                sliver: SliverPadding(
+                  padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 24),
+                  sliver: SliverToBoxAdapter(
+                    child: isTablet 
+                        ? _buildTabletLayout(pendingTasks, completedTasks, filteredEvents.length, completedTasks.length, greeting, settings.userName)
+                        : _buildPhoneLayout(pendingTasks, completedTasks, filteredEvents.length, completedTasks.length, greeting, settings.userName),
                   ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
-                ],
+                ),
               ),
-            );
-          }
+              const SliverToBoxAdapter(child: SizedBox(height: 120)),
+            ],
+          ),
         );
-      },
-      loading: () => const Scaffold(backgroundColor: AppTheme.black, body: SizedBox.shrink()),
-      error: (e, s) => Scaffold(backgroundColor: AppTheme.black, body: Center(child: Text('Error: $e'))),
+      }
     );
   }
 
-  String _cleanTitle(String title) {
-    return title.replaceAll(RegExp(r'[★☆]'), '').trim();
-  }
 
-  Widget _buildTabletLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp, String greeting, String userName) {
+  Widget _buildTabletLayout(List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp, String greeting, String userName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -121,10 +122,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildTodoList(context, pending, isar),
+                  _buildTodoList(context, pending),
                   if (completed.isNotEmpty) ...[
                     const SizedBox(height: 16),
-                    _buildCompletedList(context, completed, isar),
+                    _buildCompletedList(context, completed),
                   ]
                 ],
               )
@@ -145,7 +146,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildPhoneLayout(Isar isar, List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp, String greeting, String userName) {
+  Widget _buildPhoneLayout(List<PlannerEvent> pending, List<PlannerEvent> completed, int total, int comp, String greeting, String userName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -153,10 +154,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         const SizedBox(height: 24),
         _buildProgressWidget(context, total, comp),
         const SizedBox(height: 16),
-        _buildTodoList(context, pending, isar),
+        _buildTodoList(context, pending),
         if (completed.isNotEmpty) ...[
           const SizedBox(height: 16),
-          _buildCompletedList(context, completed, isar),
+          _buildCompletedList(context, completed),
         ],
       ]
     );
@@ -207,7 +208,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: Colors.white.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10)
                   ),
                   child: Text('$completed/$total Tasks Completed', style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
@@ -220,7 +221,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildTodoList(BuildContext context, List<PlannerEvent> tasks, Isar isar) {
+  Widget _buildTodoList(BuildContext context, List<PlannerEvent> tasks) {
     if (tasks.isEmpty) {
       return Container(
         width: double.infinity,
@@ -274,19 +275,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                    setState(() {
                      _dismissedTaskIds.add(task.id);
                    });
-                   await isar.writeTxn(() async {
-                      await isar.plannerEvents.put(task);
-
-                      if (task.questionIds != null && task.questionIds!.isNotEmpty) {
-                        for (final qId in task.questionIds!) {
-                          final q = await isar.questions.get(qId);
-                          if (q != null && q.status != QuestionStatus.completed) {
-                            q.status = QuestionStatus.completed;
-                            await isar.questions.put(q);
-                          }
-                        }
-                      }
-                   });
+                   
+                   final plannerRepo = ref.read(plannerRepositoryProvider);
+                   final questionRepo = ref.read(questionRepositoryProvider);
+                   
+                   await plannerRepo.updateEvent(task);
+                   if (task.questionIds != null && task.questionIds!.isNotEmpty) {
+                     for (final qId in task.questionIds!) {
+                       await questionRepo.updateStatus(qId, QuestionStatus.completed);
+                     }
+                   }
+                   
                    if (mounted) {
                      setState(() {});
                    }
@@ -303,7 +302,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   padding: const EdgeInsets.only(left: 32),
                   child: Text('COMPLETED', style: GoogleFonts.spaceGrotesk(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 2)),
                 ),
-                child: _buildTaskCard(task, false, isar),
+                child: TaskCardWidget(task: task, isCompleted: false, currentPath: GoRouterState.of(context).uri.path),
               );
             }
           ),
@@ -312,7 +311,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildCompletedList(BuildContext context, List<PlannerEvent> tasks, Isar isar) {
+  Widget _buildCompletedList(BuildContext context, List<PlannerEvent> tasks) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.transparent,
@@ -337,7 +336,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10, indent: 70),
             itemBuilder: (context, index) {
               final task = tasks[index];
-              return _buildTaskCard(task, true, isar);
+              return TaskCardWidget(task: task, isCompleted: true, currentPath: GoRouterState.of(context).uri.path);
             }
           ),
         ],
@@ -345,12 +344,72 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildTaskCard(PlannerEvent task, bool isCompleted, Isar isar) {
+}
+
+
+class TaskCardWidget extends ConsumerStatefulWidget {
+  final PlannerEvent task;
+  final bool isCompleted;
+  final String currentPath;
+  const TaskCardWidget({super.key, required this.task, required this.isCompleted, required this.currentPath});
+
+  @override
+  ConsumerState<TaskCardWidget> createState() => _TaskCardWidgetState();
+}
+
+class _TaskCardWidgetState extends ConsumerState<TaskCardWidget> {
+  List<Question> questions = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadQuestions();
+  }
+  
+  @override
+  void didUpdateWidget(TaskCardWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.task.questionIds != widget.task.questionIds) {
+      _loadQuestions();
+    }
+  }
+
+  Future<void> _loadQuestions() async {
+    final ids = widget.task.questionIds;
+    if (ids == null || ids.isEmpty) {
+      if (mounted) {
+        setState(() {
+          questions = [];
+          isLoading = false;
+        });
+      }
+      return;
+    }
+    
+    final repo = ref.read(questionRepositoryProvider);
+    final futures = ids.map((id) => repo.getQuestion(id));
+    final results = await Future.wait(futures);
+    
+    if (mounted) {
+      setState(() {
+        questions = results.whereType<Question>().toList();
+        isLoading = false;
+      });
+    }
+  }
+
+
+  String _cleanTitle(String title) {
+    return title.replaceAll(RegExp(r'[★☆]'), '').trim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final task = widget.task;
+    final isCompleted = widget.isCompleted;
     final now = DateTime.now();
     final isActive = !isCompleted && now.isAfter(task.startTime) && now.isBefore(task.endTime);
-    final questions = task.questionIds == null || task.questionIds!.isEmpty 
-        ? <Question>[] 
-        : isar.questions.getAllSync(task.questionIds!).whereType<Question>().toList();
 
     return InkWell(
       onLongPress: () {
@@ -361,8 +420,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           backgroundColor: Colors.transparent,
           builder: (_) => TaskActionSheet(
             event: task, 
-            isar: isar,
-            currentPath: GoRouterState.of(context).uri.path,
+            currentPath: widget.currentPath,
           ),
         );
       },
@@ -373,8 +431,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           backgroundColor: Colors.transparent,
           builder: (_) => TaskActionSheet(
             event: task, 
-            isar: isar,
-            currentPath: GoRouterState.of(context).uri.path,
+            currentPath: widget.currentPath,
           ),
         );
       },
@@ -452,12 +509,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                if (questions.isEmpty)
+                if (isLoading)
+                   Text('Loading...', style: GoogleFonts.inter(color: Colors.white54, fontSize: 14, fontStyle: FontStyle.italic))
+                else if (questions.isEmpty)
                    Text('No specific tasks.', style: GoogleFonts.inter(color: Colors.white54, fontSize: 14, fontStyle: FontStyle.italic))
                 else
-                   ...questions.asMap().entries.map((entry) {
-                     final index = entry.key;
-                     final q = entry.value;
+                   ...questions.map((q) {
                      return Padding(
                        padding: const EdgeInsets.only(bottom: 4),
                        child: Builder(
@@ -490,7 +547,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       )
     ));
   }
-
 }
 
 class AnimatedClockIcon extends StatelessWidget {
@@ -520,7 +576,7 @@ class AnimatedClockIcon extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: Colors.white.withOpacity(0.4),
+            color: Colors.white.withValues(alpha: 0.4),
             blurRadius: 8,
             spreadRadius: 2,
           )

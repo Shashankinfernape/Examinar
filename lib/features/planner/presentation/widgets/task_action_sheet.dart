@@ -1,46 +1,48 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:isar/isar.dart';
+
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/models/planner_event.dart';
+import '../../data/repositories/planner_repository.dart';
 import '../screens/day_schedule_screen.dart'; // To access reschedulingEventProvider
+
 
 class TaskActionSheet extends ConsumerWidget {
   final PlannerEvent event;
-  final Isar isar;
   final String currentPath;
 
-  const TaskActionSheet({super.key, required this.event, required this.isar, required this.currentPath});
+  const TaskActionSheet({super.key, required this.event, required this.currentPath});
 
-  Future<void> _addAnHourCascade(BuildContext context) async {
+  Future<void> _addAnHourCascade(BuildContext context, WidgetRef ref) async {
     final originalEndTime = event.endTime;
+    
+    final repo = ref.read(plannerRepositoryProvider);
+    final allEvents = await repo.getAllEvents();
+
     final dayStart = DateTime(originalEndTime.year, originalEndTime.month, originalEndTime.day);
     final dayEnd = DateTime(originalEndTime.year, originalEndTime.month, originalEndTime.day, 23, 59, 59);
 
-    final dayEvents = isar.plannerEvents.where()
-        .filter()
-        .startTimeBetween(dayStart, dayEnd)
-        .findAllSync();
+    final dayEvents = allEvents.where((e) => 
+        (e.startTime.isAfter(dayStart.subtract(const Duration(seconds: 1))) && 
+         e.startTime.isBefore(dayEnd.add(const Duration(seconds: 1))))).toList();
 
     // The events that need to be shifted are those starting AT or AFTER the original end time.
     final eventsToShift = dayEvents.where((e) => 
       (e.startTime.isAfter(originalEndTime) || e.startTime.isAtSameMomentAs(originalEndTime)) && e.id != event.id
     ).toList();
 
-    await isar.writeTxn(() async {
-      // 1. Extend the current event
-      event.endTime = event.endTime.add(const Duration(hours: 1));
-      await isar.plannerEvents.put(event);
+    // 1. Extend the current event
+    event.endTime = event.endTime.add(const Duration(hours: 1));
+    await repo.updateEvent(event);
 
-      // 2. Cascade shift all subsequent events
-      for (var e in eventsToShift) {
-        e.startTime = e.startTime.add(const Duration(hours: 1));
-        e.endTime = e.endTime.add(const Duration(hours: 1));
-        await isar.plannerEvents.put(e);
-      }
-    });
+    // 2. Cascade shift all subsequent events
+    for (var e in eventsToShift) {
+      e.startTime = e.startTime.add(const Duration(hours: 1));
+      e.endTime = e.endTime.add(const Duration(hours: 1));
+      await repo.updateEvent(e);
+    }
 
     if (context.mounted) {
       context.pop();
@@ -92,13 +94,13 @@ class TaskActionSheet extends ConsumerWidget {
                 decoration: BoxDecoration(
                   color: AppTheme.cardSurface,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.samsungBlue.withOpacity(0.3)),
+                  border: Border.all(color: AppTheme.samsungBlue.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: AppTheme.samsungBlue.withOpacity(0.1), shape: BoxShape.circle),
+                      decoration: BoxDecoration(color: AppTheme.samsungBlue.withValues(alpha: 0.1), shape: BoxShape.circle),
                       child: const Icon(Icons.edit_calendar, color: AppTheme.samsungBlue),
                     ),
                     const SizedBox(width: 16),
@@ -121,20 +123,20 @@ class TaskActionSheet extends ConsumerWidget {
             
             // Add An Hour Button
             InkWell(
-              onTap: () => _addAnHourCascade(context),
+              onTap: () => _addAnHourCascade(context, ref),
               borderRadius: BorderRadius.circular(16),
               child: Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: AppTheme.cardSurface,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), shape: BoxShape.circle),
+                      decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.1), shape: BoxShape.circle),
                       child: const Icon(Icons.more_time, color: Colors.orange),
                     ),
                     const SizedBox(width: 16),

@@ -1,18 +1,27 @@
-import 'package:isar/isar.dart';
-import 'unit.dart';
-import 'question.dart';
-
-part 'topic.g.dart';
-
-@collection
 class Topic {
-  Id id = Isar.autoIncrement;
+  String id;
+  String name;
+  String unitId;
 
-  late String name;
+  Topic({
+    required this.id,
+    required this.name,
+    required this.unitId,
+  });
 
-  @Backlink(to: 'topics')
-  final unit = IsarLink<Unit>();
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'unitId': unitId,
+    };
+  }
 
-  final questions = IsarLinks<Question>();
+  factory Topic.fromMap(Map<String, dynamic> map, String docId) {
+    return Topic(
+      id: docId,
+      name: map['name'] ?? '',
+      unitId: map['unitId'] ?? '',
+    );
+  }
 }
 // Note: This model is being phased out but kept for schema compatibility during migration.

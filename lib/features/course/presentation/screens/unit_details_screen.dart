@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:isar/isar.dart';
+
 import '../../data/repositories/course_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../domain/models/unit.dart';
@@ -11,18 +11,17 @@ import '../widgets/paste_build_sheet.dart';
 import '../widgets/difficulty_stars.dart';
 
 class UnitDetailsScreen extends ConsumerWidget {
-  final int unitId;
+  final String unitId;
 
   const UnitDetailsScreen({super.key, required this.unitId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final repoAsync = ref.watch(courseRepositoryProvider);
-    final qRepoAsync = ref.watch(questionRepositoryProvider);
+    final repo = ref.watch(courseRepositoryProvider);
+    final qRepo = ref.watch(questionRepositoryProvider);
 
-    return repoAsync.when(
-      data: (repo) => StreamBuilder<Unit?>(
-        stream: repo.isar.units.watchObject(unitId, fireImmediately: true),
+    return StreamBuilder<Unit?>(
+      stream: repo.watchUnit(unitId),
         builder: (context, snapshot) {
           final unit = snapshot.data;
           if (unit == null) return const Scaffold(body: Center(child: Text('Unit not found')));
@@ -74,9 +73,8 @@ class UnitDetailsScreen extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  qRepoAsync.when(
-                    data: (qRepo) => StreamBuilder<List<Question>>(
-                      stream: qRepo.isar.questions.where().filter().unitIdEqualTo(unit.id).watch(fireImmediately: true),
+                  StreamBuilder<List<Question>>(
+                    stream: qRepo.watchQuestionsForUnit(unit.id),
                       builder: (context, qSnapshot) {
                         final questions = qSnapshot.data ?? [];
                         if (questions.isEmpty) {
@@ -124,7 +122,7 @@ class UnitDetailsScreen extends ConsumerWidget {
                           children.add(
                             Card(
                               elevation: 0,
-                              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                               margin: const EdgeInsets.only(bottom: 8),
                               child: ListTile(
                                 leading: _buildStatusIcon(q.status),
@@ -159,18 +157,12 @@ class UnitDetailsScreen extends ConsumerWidget {
                         );
                       },
                     ),
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (e, s) => Text('Error loading questions: $e'),
-                  ),
                 ],
               ),
             ),
           );
         },
-      ),
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, s) => Scaffold(body: Center(child: Text('Error: $e'))),
-    );
+      );
   }
 
   Widget _buildStatusIcon(QuestionStatus status) {
@@ -180,7 +172,6 @@ class UnitDetailsScreen extends ConsumerWidget {
       case QuestionStatus.revisionNeeded:
         return const CircleAvatar(radius: 12, backgroundColor: Colors.orange, child: Icon(Icons.autorenew, size: 14, color: Colors.white));
       case QuestionStatus.incomplete:
-      default:
         return CircleAvatar(radius: 12, backgroundColor: Colors.grey[300], child: const Icon(Icons.radio_button_unchecked, size: 14, color: Colors.grey));
     }
   }
@@ -195,7 +186,7 @@ class UnitDetailsScreen extends ConsumerWidget {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
             onPressed: () async {
-              final repo = await ref.read(questionRepositoryProvider.future);
+              final repo = ref.read(questionRepositoryProvider);
               await repo.deleteQuestion(question.id);
               if (context.mounted) Navigator.pop(context);
             },
@@ -222,8 +213,8 @@ class UnitDetailsScreen extends ConsumerWidget {
           TextButton(
             onPressed: () async {
               if (controller.text.isNotEmpty) {
-                final repo = await ref.read(questionRepositoryProvider.future);
-                await repo.addQuestion(controller.text, unit.id, courseId: unit.course.value?.id);
+                final repo = ref.read(questionRepositoryProvider);
+                await repo.addQuestion(controller.text, unit.id, courseId: unit.courseId);
                 if (context.mounted) Navigator.pop(context);
               }
             },

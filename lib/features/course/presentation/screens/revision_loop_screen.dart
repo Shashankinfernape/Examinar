@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../domain/models/question.dart';
-import 'package:exam_command_center/core/theme/app_theme.dart';
-
 class RevisionLoopScreen extends ConsumerStatefulWidget {
-  final List<int> questionIds;
+  final List<String> questionIds;
 
   const RevisionLoopScreen({super.key, required this.questionIds});
 
@@ -37,74 +35,77 @@ class _RevisionLoopScreenState extends ConsumerState<RevisionLoopScreen> {
     }
 
     final questionId = widget.questionIds[_currentIndex];
-    final repoAsync = ref.watch(questionRepositoryProvider);
+    final repo = ref.watch(questionRepositoryProvider);
 
-    return repoAsync.when(
-      data: (repo) => FutureBuilder<Question?>(
-        future: repo.isar.questions.get(questionId),
-        builder: (context, snapshot) {
-          final question = snapshot.data;
-          if (question == null) return const Scaffold(body: Center(child: Text('Question not found')));
+    return FutureBuilder<Question?>(
+      future: repo.getQuestion(questionId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        if (snapshot.hasError) {
+          return Scaffold(body: Center(child: Text('Error: ${snapshot.error}')));
+        }
+        
+        final question = snapshot.data;
+        if (question == null) return const Scaffold(body: Center(child: Text('Question not found')));
 
-          return Scaffold(
-            appBar: AppBar(
-              title: Text('Revising (${_currentIndex + 1}/${widget.questionIds.length})'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Exit', style: TextStyle(color: Colors.red)),
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('Revising (${_currentIndex + 1}/${widget.questionIds.length})'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Exit', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+          body: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  question.title,
+                  style: Theme.of(context).textTheme.headlineSmall,
                 ),
+                const SizedBox(height: 24),
+                if (question.notes != null) ...[
+                  Text('Notes', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SingleChildScrollView(child: Text(question.notes!)),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                Text(
+                  'Update Status to Advance',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    _statusButton(QuestionStatus.incomplete, 'Incomplete', Icons.radio_button_unchecked, Colors.grey),
+                    const SizedBox(width: 8),
+                    _statusButton(QuestionStatus.revisionNeeded, 'Revise', Icons.autorenew, Colors.orange),
+                    const SizedBox(width: 8),
+                    _statusButton(QuestionStatus.completed, 'Done', Icons.check, Colors.green),
+                  ],
+                ),
+                const SizedBox(height: 32),
               ],
             ),
-            body: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    question.title,
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 24),
-                  if (question.notes != null) ...[
-                    Text('Notes', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: SingleChildScrollView(child: Text(question.notes!)),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  Text(
-                    'Update Status to Advance',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      _statusButton(QuestionStatus.incomplete, 'Incomplete', Icons.radio_button_unchecked, Colors.grey),
-                      const SizedBox(width: 8),
-                      _statusButton(QuestionStatus.revisionNeeded, 'Revise', Icons.autorenew, Colors.orange),
-                      const SizedBox(width: 8),
-                      _statusButton(QuestionStatus.completed, 'Done', Icons.check, Colors.green),
-                    ],
-                  ),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, s) => Scaffold(body: Center(child: Text('Error: $e'))),
+          ),
+        );
+      },
     );
   }
 
@@ -115,7 +116,7 @@ class _RevisionLoopScreenState extends ConsumerState<RevisionLoopScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 16),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             border: Border.all(color: color),
             borderRadius: BorderRadius.circular(12),
           ),
@@ -140,11 +141,13 @@ class _RevisionLoopScreenState extends ConsumerState<RevisionLoopScreen> {
 
   void _updateAndAdvance(QuestionStatus status) async {
     final questionId = widget.questionIds[_currentIndex];
-    final repo = await ref.read(questionRepositoryProvider.future);
+    final repo = ref.read(questionRepositoryProvider);
     await repo.updateStatus(questionId, status);
     
-    setState(() {
-      _currentIndex++;
-    });
+    if (mounted) {
+      setState(() {
+        _currentIndex++;
+      });
+    }
   }
 }

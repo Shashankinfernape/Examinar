@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:isar/isar.dart';
+
 import '../../data/repositories/course_repository.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../domain/models/course.dart';
@@ -14,7 +14,7 @@ import '../widgets/difficulty_stars.dart';
 import '../widgets/paste_build_sheet.dart';
 
 class CourseDetailScreen extends ConsumerStatefulWidget {
-  final int courseId;
+  final String courseId;
 
   const CourseDetailScreen({super.key, required this.courseId});
 
@@ -39,14 +39,13 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
 
   @override
   Widget build(BuildContext context) {
-    final repoAsync = ref.watch(courseRepositoryProvider);
+    final repo = ref.watch(courseRepositoryProvider);
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isTablet = screenWidth > 900;
     final double hPad = isTablet ? 32.0 : 16.0;
 
-    return repoAsync.when(
-      data: (repo) => StreamBuilder<Course?>(
-        stream: repo.isar.courses.watchObject(widget.courseId, fireImmediately: true),
+    return StreamBuilder<Course?>(
+      stream: repo.watchCourse(widget.courseId),
         builder: (context, snapshot) {
           final course = snapshot.data;
           if (course == null) return const Scaffold(body: Center(child: Text('Subject not found')));
@@ -103,7 +102,7 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
                             height: 48,
                             padding: const EdgeInsets.all(4),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.08),
+                              color: Colors.white.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(100),
                             ),
                             child: Stack(
@@ -116,7 +115,7 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
                                     heightFactor: 1.0,
                                     child: Container(
                                       decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.2),
+                                        color: Colors.white.withValues(alpha: 0.2),
                                         borderRadius: BorderRadius.circular(100),
                                       ),
                                     ),
@@ -163,10 +162,7 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
             ),
           );
         },
-      ),
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, s) => Scaffold(body: Center(child: Text('Error: $e'))),
-    );
+      );
   }
 
   Widget _buildCustomTab({required String label, required bool isSelected, required VoidCallback onTap}) {
@@ -193,20 +189,27 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> with Si
   }
 
   Widget _buildChecklistTab(Course course, double hPad) {
-    if (course.units.isEmpty) {
-      return SingleChildScrollView(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 100),
-          child: PasteBuildSheet(course: course, isEmbedded: true),
-        ),
-      );
-    }
-    return ListView.builder(
-      padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 120),
-      itemCount: course.units.length,
-      itemBuilder: (context, index) {
-        final unit = course.units.elementAt(index);
-        return _FlatUnitSection(unit: unit);
+    final repo = ref.read(courseRepositoryProvider);
+    return StreamBuilder<List<Unit>>(
+      stream: repo.watchCourseUnits(course.id),
+      builder: (context, snapshot) {
+        final units = snapshot.data ?? [];
+        if (units.isEmpty) {
+          return SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 100),
+              child: PasteBuildSheet(course: course, isEmbedded: true),
+            ),
+          );
+        }
+        return ListView.builder(
+          padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 120),
+          itemCount: units.length,
+          itemBuilder: (context, index) {
+            final unit = units[index];
+            return _FlatUnitSection(unit: unit);
+          },
+        );
       },
     );
   }
@@ -218,7 +221,7 @@ class _FlatUnitSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final repoAsync = ref.watch(questionRepositoryProvider);
+    final qRepo = ref.watch(questionRepositoryProvider);
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
       child: Column(
@@ -242,9 +245,8 @@ class _FlatUnitSection extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 8),
-          repoAsync.when(
-            data: (repo) => StreamBuilder<List<Question>>(
-              stream: repo.isar.questions.where().filter().unitIdEqualTo(unit.id).watch(fireImmediately: true),
+          StreamBuilder<List<Question>>(
+            stream: qRepo.watchQuestionsForUnit(unit.id),
               builder: (context, snapshot) {
                 final questions = snapshot.data ?? [];
                 if (questions.isEmpty) {
@@ -297,9 +299,6 @@ class _FlatUnitSection extends ConsumerWidget {
                 );
               },
             ),
-            loading: () => const SizedBox(),
-            error: (e, s) => Text('Error: $e'),
-          ),
           const SizedBox(height: 16),
           const Divider(color: Colors.white10, height: 1),
         ],
@@ -436,11 +435,10 @@ class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
 
   @override
   Widget build(BuildContext context) {
-    final qRepoAsync = ref.watch(questionRepositoryProvider);
+    final qRepo = ref.watch(questionRepositoryProvider);
 
-    return qRepoAsync.when(
-      data: (qRepo) => StreamBuilder<List<Question>>(
-        stream: qRepo.isar.questions.where().filter().courseIdEqualTo(widget.course.id).watch(fireImmediately: true),
+    return StreamBuilder<List<Question>>(
+        stream: qRepo.watchQuestionsForCourse(widget.course.id),
         builder: (context, snapshot) {
           final questions = snapshot.data ?? [];
           if (questions.isEmpty) return const Center(child: Text('Initialize targets to view readiness.', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)));
@@ -455,9 +453,9 @@ class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
           final gradeColor = _getGradeColor(grade);
 
           List<Question> displayedQuestions = [];
-          if (_selectedTab == 0) displayedQuestions = securedList;
-          else if (_selectedTab == 1) displayedQuestions = reviseList;
-          else if (_selectedTab == 2) displayedQuestions = pendingList;
+          if (_selectedTab == 0) { displayedQuestions = securedList; }
+          else if (_selectedTab == 1) { displayedQuestions = reviseList; }
+          else if (_selectedTab == 2) { displayedQuestions = pendingList; }
 
           return CustomScrollView(
             physics: const BouncingScrollPhysics(),
@@ -470,9 +468,9 @@ class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
                     decoration: BoxDecoration(
                       color: AppTheme.black,
                       borderRadius: BorderRadius.circular(32),
-                      border: Border.all(color: Colors.white.withOpacity(0.03), width: 1),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.03), width: 1),
                       boxShadow: [
-                        BoxShadow(color: gradeColor.withOpacity(0.05), blurRadius: 40, spreadRadius: 0)
+                        BoxShadow(color: gradeColor.withValues(alpha: 0.05), blurRadius: 40, spreadRadius: 0)
                       ]
                     ),
                     child: Column(
@@ -489,14 +487,14 @@ class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
                                 width: 180, height: 180,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  boxShadow: [BoxShadow(color: gradeColor.withOpacity(0.15), blurRadius: 30, spreadRadius: -5)]
+                                  boxShadow: [BoxShadow(color: gradeColor.withValues(alpha: 0.15), blurRadius: 30, spreadRadius: -5)]
                                 )
                               ),
                               SizedBox.expand(
                                 child: CircularProgressIndicator(
                                   value: progress,
                                   strokeWidth: 12,
-                                  backgroundColor: Colors.black.withOpacity(0.3),
+                                  backgroundColor: Colors.black.withValues(alpha: 0.3),
                                   color: gradeColor,
                                   strokeCap: StrokeCap.round,
                                 ),
@@ -510,7 +508,7 @@ class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
                                       fontSize: 64, 
                                       color: gradeColor,
                                       height: 1.1,
-                                      shadows: [Shadow(color: gradeColor.withOpacity(0.5), blurRadius: 20)]
+                                      shadows: [Shadow(color: gradeColor.withValues(alpha: 0.5), blurRadius: 20)]
                                     ),
                                   ),
                                   Row(
@@ -542,7 +540,7 @@ class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
                     decoration: BoxDecoration(
                       color: AppTheme.black, // OLED black background
                       borderRadius: BorderRadius.circular(100), // Pill shape
-                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
                     ),
                     child: Stack(
                       children: [
@@ -562,8 +560,8 @@ class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
                               child: Container(
                                 decoration: BoxDecoration(
                                   color: _selectedTab == 0 
-                                      ? AppTheme.completedColor.withOpacity(0.15) 
-                                      : (_selectedTab == 1 ? AppTheme.inProgressColor.withOpacity(0.15) : Colors.white.withOpacity(0.1)),
+                                      ? AppTheme.completedColor.withValues(alpha: 0.15) 
+                                      : (_selectedTab == 1 ? AppTheme.inProgressColor.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.1)),
                                   borderRadius: BorderRadius.circular(100),
                                 ),
                               ),
@@ -633,10 +631,7 @@ class _CourseReadinessViewState extends ConsumerState<_CourseReadinessView> {
             ],
           );
         },
-      ),
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, s) => Center(child: Text('Error: $e')),
-    );
+      );
   }
 }
 
@@ -664,7 +659,7 @@ class _QuestionItemTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppTheme.black,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
         ),
         child: Row(
           children: [

@@ -1,6 +1,7 @@
-import 'package:isar/isar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:exam_command_center/core/database/isar_provider.dart';
+import 'package:exam_command_center/core/database/firestore_provider.dart';
 import '../../domain/models/question.dart';
 import '../../domain/models/unit.dart';
 import 'package:exam_command_center/features/planner/domain/models/planner_event.dart';
@@ -8,111 +9,152 @@ import 'package:exam_command_center/features/planner/domain/models/planner_event
 part 'question_repository.g.dart';
 
 class QuestionRepository {
-  final Isar isar;
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
 
-  QuestionRepository(this.isar);
+  QuestionRepository(this.firestore, this.auth);
+
+  String get uid {
+    final currentUser = auth.currentUser;
+    if (currentUser == null) throw Exception('User not authenticated');
+    return currentUser.uid;
+  }
+
+  CollectionReference<Map<String, dynamic>> get _questionsRef => firestore.collection('users').doc(uid).collection('questions');
+  CollectionReference<Map<String, dynamic>> get _eventsRef => firestore.collection('users').doc(uid).collection('plannerEvents');
+  CollectionReference<Map<String, dynamic>> get _unitsRef => firestore.collection('users').doc(uid).collection('units');
 
   int _parseDifficulty(String title) {
-    int stars = RegExp(r'[★☆⭐🌟\*]').allMatches(title).length;
+    int stars = RegExp(r'[★☆]').allMatches(title).length;
     if (stars == 0) return 3;
     return stars > 5 ? 5 : stars;
   }
 
   String _cleanTitle(String title) {
-    return title.replaceAll(RegExp(r'[★☆⭐🌟\*]'), '').split('\n').first.trim();
+    return title.replaceAll(RegExp(r'[★☆]'), '').split('\n').first.trim();
   }
 
-  Future<void> addQuestion(String title, int unitId, {int? courseId}) async {
-    await isar.writeTxn(() async {
-      final unit = await isar.units.get(unitId);
-      if (unit == null) return;
+  Future<void> addQuestion(String title, String unitId, {String? courseId}) async {
+    final unitDoc = await _unitsRef.doc(unitId).get();
+    if (!unitDoc.exists) return;
 
-      final question = Question()
-        ..title = _cleanTitle(title)
-        ..difficulty = _parseDifficulty(title)
-        ..unitId = unitId
-        ..courseId = courseId ?? 0
-        ..createdAt = DateTime.now();
-      
-      await isar.questions.put(question);
-      
-      question.unitLink.value = unit;
-      await question.unitLink.save();
+    final docRef = _questionsRef.doc();
+    final question = Question(
+      id: docRef.id,
+      title: _cleanTitle(title),
+      courseId: courseId ?? '',
+      unitId: unitId,
+      difficulty: _parseDifficulty(title),
+      createdAt: DateTime.now(),
+    );
+    
+    await docRef.set(question.toMap());
+  }
+
+  Question createQuestionObject(String title, String unitId) {
+    return Question(
+      id: '',
+      title: _cleanTitle(title),
+      courseId: '',
+      unitId: unitId,
+      difficulty: _parseDifficulty(title),
+      createdAt: DateTime.now(),
+    );
+  }
+
+  Future<void> updateStatus(String questionId, QuestionStatus newStatus) async {
+    final batch = firestore.batch();
+    final qRef = _questionsRef.doc(questionId);
+    
+    batch.update(qRef, {
+      'status': newStatus.name,
+      'lastViewedAt': DateTime.now().toIso8601String(),
     });
-  }
 
-  // Helper for internal use (like Paste & Build)
-  Question createQuestionObject(String title, int unitId) {
-    return Question()
-      ..title = _cleanTitle(title)
-      ..difficulty = _parseDifficulty(title)
-      ..unitId = unitId
-      ..createdAt = DateTime.now();
-  }
-
-  Future<void> updateStatus(int questionId, QuestionStatus newStatus) async {
-    await isar.writeTxn(() async {
-      final question = await isar.questions.get(questionId);
-      if (question == null) return;
-
-      question.status = newStatus;
-      question.lastViewedAt = DateTime.now();
-      await isar.questions.put(question);
-
-      // Sync the planner events associated with this question
-      final isCompleted = newStatus == QuestionStatus.completed;
-      
-      // We can't directly query list contents with Isar easily in this context without
-      // generating specific index, but we can fetch all incomplete or completed events 
-      // depending on the change, or just fetch all and filter. Since planner events 
-      // are relatively small per day, we can find events containing this question.
-      final allEvents = await isar.plannerEvents.where().findAll();
-      final linkedEvents = allEvents.where((e) => e.questionIds != null && e.questionIds!.contains(questionId)).toList();
-      
-      for (var event in linkedEvents) {
-        if (event.isCompleted != isCompleted) {
-          event.isCompleted = isCompleted;
-          await isar.plannerEvents.put(event);
-        }
+    final isCompleted = newStatus == QuestionStatus.completed;
+    
+    final eventsSnapshot = await _eventsRef.where('questionIds', arrayContains: questionId).get();
+    for (var doc in eventsSnapshot.docs) {
+      if (doc.data()['isCompleted'] != isCompleted) {
+        batch.update(doc.reference, {'isCompleted': isCompleted});
       }
+    }
+    
+    await batch.commit();
+  }
+
+  Future<void> updateDifficulty(String questionId, int stars) async {
+    await _questionsRef.doc(questionId).update({'difficulty': stars});
+  }
+
+  
+  Future<Question?> getQuestion(String questionId) async {
+    final doc = await _questionsRef.doc(questionId).get();
+    if (doc.exists) {
+      return Question.fromMap(doc.data()!, doc.id);
+    }
+    return null;
+  }
+
+  Stream<Question?> watchQuestion(String questionId) {
+    return _questionsRef.doc(questionId).snapshots().map((snapshot) {
+      if (snapshot.exists) {
+        return Question.fromMap(snapshot.data()!, snapshot.id);
+      }
+      return null;
     });
   }
 
-  Future<void> updateDifficulty(int questionId, int stars) async {
-    await isar.writeTxn(() async {
-      final question = await isar.questions.get(questionId);
-      if (question == null) return;
+  Future<void> updateQuestion(Question question) async {
+    await _questionsRef.doc(question.id).update(question.toMap());
+  }
 
-      question.difficulty = stars;
-      await isar.questions.put(question);
+  Future<void> deleteQuestion(String questionId) async {
+    await _questionsRef.doc(questionId).delete();
+  }
+
+  Future<List<Question>> getQuestionsForUnit(String unitId) async {
+    final snapshot = await _questionsRef.where('unitId', isEqualTo: unitId).get();
+    return snapshot.docs.map((doc) => Question.fromMap(doc.data(), doc.id)).toList();
+  }
+
+  Future<List<Question>> getQuestionsForCourse(String courseId) async {
+    final snapshot = await _questionsRef.where('courseId', isEqualTo: courseId).get();
+    return snapshot.docs.map((doc) => Question.fromMap(doc.data(), doc.id)).toList();
+  }
+  
+  Stream<List<Question>> watchQuestionsForCourse(String courseId) {
+    return _questionsRef.where('courseId', isEqualTo: courseId).snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) => Question.fromMap(doc.data(), doc.id)).toList();
     });
   }
 
-  Future<void> deleteQuestion(int questionId) async {
-    await isar.writeTxn(() async {
-      await isar.questions.delete(questionId);
+  Stream<List<Question>> watchQuestionsForUnit(String unitId) {
+    return _questionsRef.where('unitId', isEqualTo: unitId).snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) => Question.fromMap(doc.data(), doc.id)).toList();
     });
   }
 
-  Future<List<Question>> getQuestionsForUnit(int unitId) async {
-    return isar.questions.where().filter().unitIdEqualTo(unitId).findAll();
-  }
-
-  Future<List<Question>> getQuestionsForCourse(int courseId) async {
-    return isar.questions.where().filter().courseIdEqualTo(courseId).findAll();
+  Stream<List<Question>> watchAllQuestions() {
+    return _questionsRef.snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) => Question.fromMap(doc.data(), doc.id)).toList();
+    });
   }
 
   Future<List<Question>> getRevisionQueue() async {
-    return isar.questions.where()
-        .filter()
-        .statusEqualTo(QuestionStatus.revisionNeeded)
-        .sortByLastViewedAt()
-        .findAll();
+    final snapshot = await _questionsRef
+        .where('status', isEqualTo: QuestionStatus.revisionNeeded.name)
+        .orderBy('lastViewedAt')
+        .get();
+    return snapshot.docs.map((doc) => Question.fromMap(doc.data(), doc.id)).toList();
   }
+
+
 }
 
 @riverpod
-Future<QuestionRepository> questionRepository(QuestionRepositoryRef ref) async {
-  final isar = await ref.watch(isarProvider.future);
-  return QuestionRepository(isar);
+QuestionRepository questionRepository(QuestionRepositoryRef ref) {
+  final fs = ref.watch(firestoreProvider);
+  final auth = ref.watch(firebaseAuthProvider);
+  return QuestionRepository(fs, auth);
 }

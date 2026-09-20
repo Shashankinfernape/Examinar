@@ -2,11 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/settings/settings_provider.dart';
 import '../../../../core/theme/app_theme.dart';
-import 'package:intl/intl.dart';
-import 'package:go_router/go_router.dart';
 import '../../../../features/auth/data/auth_service.dart';
 import '../../../../features/auth/presentation/screens/login_screen.dart';
-import '../../../../features/sync/data/cloud_sync_service.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -112,11 +109,6 @@ class ProfileScreen extends ConsumerWidget {
     final authService = ref.read(authServiceProvider);
     final authState = ref.watch(authStateProvider);
     final user = authState.value;
-    
-    String lastSyncText = 'Never synced';
-    if (settings.lastSyncedAt != null) {
-      lastSyncText = 'Last sync: ${DateFormat('MMM d, yyyy - h:mm a').format(settings.lastSyncedAt!)}';
-    }
 
     return Container(
       decoration: BoxDecoration(
@@ -168,117 +160,9 @@ class ProfileScreen extends ConsumerWidget {
                 child: const Text('Login', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
               ),
             ),
-          
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: user == null ? null : () async {
-                      try {
-                        ScaffoldMessenger.of(context).clearSnackBars();
-                        ScaffoldMessenger.of(context).showSnackBar(_buildPremiumSnackbar(context, 'Backing up to cloud...', Icons.cloud_upload_outlined, AppTheme.samsungBlue));
-                        final syncService = await ref.read(cloudSyncServiceProvider.future);
-                        await syncService.backupToCloud();
-                        final now = DateTime.now();
-                        ref.read(settingsProvider.notifier).setLastSyncedAt(now);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).clearSnackBars();
-                          ScaffoldMessenger.of(context).showSnackBar(_buildPremiumSnackbar(context, 'Backup successful!', Icons.check_circle_outline, AppTheme.completedColor));
-                        }
-                      } catch (e) {
-                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).clearSnackBars();
-                          ScaffoldMessenger.of(context).showSnackBar(_buildPremiumSnackbar(context, 'Backup failed: ${e.toString().replaceAll('Exception: ', '')}', Icons.error_outline, AppTheme.urgentColor));
-                        }
-                      }
-                    },
-                    icon: const Icon(Icons.upload_rounded, size: 18),
-                    label: const Text('Backup'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.cardSurface,
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white24),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: user == null ? null : () async {
-                      try {
-                        ScaffoldMessenger.of(context).clearSnackBars();
-                        ScaffoldMessenger.of(context).showSnackBar(_buildPremiumSnackbar(context, 'Restoring from cloud...', Icons.cloud_download_outlined, AppTheme.samsungBlue));
-                        final syncService = await ref.read(cloudSyncServiceProvider.future);
-                        await syncService.restoreFromCloud();
-                        final now = DateTime.now();
-                        ref.read(settingsProvider.notifier).setLastSyncedAt(now);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).clearSnackBars();
-                          ScaffoldMessenger.of(context).showSnackBar(_buildPremiumSnackbar(context, 'Restore successful!', Icons.check_circle_outline, AppTheme.completedColor));
-                        }
-                      } catch (e) {
-                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).clearSnackBars();
-                          ScaffoldMessenger.of(context).showSnackBar(_buildPremiumSnackbar(context, 'Restore failed.', Icons.error_outline, AppTheme.urgentColor));
-                        }
-                      }
-                    },
-                    icon: const Icon(Icons.download_rounded, size: 18),
-                    label: const Text('Restore'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.cardSurface,
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white24),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Text(
-              lastSyncText,
-              style: const TextStyle(color: Colors.white30, fontSize: 12),
-            ),
-          )
+          const SizedBox(height: 16),
         ],
       ),
-    );
-  }
-
-  SnackBar _buildPremiumSnackbar(BuildContext context, String message, IconData icon, Color iconColor) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth > 720;
-    
-    // The sidebar is 260px wide. To make it stay in the main content area 
-    // (right of the nav bar), we push the left margin past the sidebar.
-    final double leftMargin = isTablet ? 260 + 24 : 24;
-
-    return SnackBar(
-      content: Row(
-        children: [
-          Icon(icon, color: iconColor, size: 24),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-          ),
-        ],
-      ),
-      backgroundColor: AppTheme.cardSurface,
-      behavior: SnackBarBehavior.floating,
-      margin: EdgeInsets.only(bottom: 24, left: leftMargin, right: 24),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: iconColor.withOpacity(0.5), width: 1.5),
-      ),
-      elevation: 0,
-      duration: const Duration(seconds: 3),
     );
   }
 }

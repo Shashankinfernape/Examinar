@@ -1,7 +1,10 @@
 import 'dart:convert';
-import 'package:isar/isar.dart';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:exam_command_center/core/database/isar_provider.dart';
+import 'package:exam_command_center/core/database/firestore_provider.dart';
+
 import 'package:exam_command_center/features/course/domain/models/course.dart';
 import 'package:exam_command_center/features/course/domain/models/unit.dart';
 import 'package:exam_command_center/features/course/domain/models/topic.dart';
@@ -10,63 +13,79 @@ import 'package:exam_command_center/features/course/domain/models/question.dart'
 part 'import_repository.g.dart';
 
 class ImportRepository {
-  final Isar isar;
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
 
-  ImportRepository(this.isar);
+  ImportRepository(this.firestore, this.auth);
+
+  String get uid {
+    final currentUser = auth.currentUser;
+    if (currentUser == null) throw Exception('User not authenticated');
+    return currentUser.uid;
+  }
 
   Future<void> importFromJson(String jsonString) async {
     final data = jsonDecode(jsonString);
+    final batch = firestore.batch();
+
+    final courseData = data['course'];
+    final courseRef = firestore.collection('users').doc(uid).collection('courses').doc();
     
-    await isar.writeTxn(() async {
-      final courseData = data['course'];
-      final course = Course()
-        ..name = courseData['name']
-        ..examDate = courseData['examDate'] != null ? DateTime.parse(courseData['examDate']) : null
-        ..colorTag = courseData['colorTag'];
-      
-      await isar.courses.put(course);
+    final course = Course(
+      id: courseRef.id,
+      name: courseData['name'],
+      examDate: courseData['examDate'] != null ? DateTime.parse(courseData['examDate']) : null,
+      colorTag: courseData['colorTag'],
+    );
+    batch.set(courseRef, course.toMap());
 
-      if (courseData['units'] != null) {
-        for (var unitData in courseData['units']) {
-          final unit = Unit()
-            ..name = unitData['name']
-            ..index = unitData['index'];
-          
-          await isar.units.put(unit);
-          course.units.add(unit);
+    if (courseData['units'] != null) {
+      for (var unitData in courseData['units']) {
+        final unitRef = firestore.collection('users').doc(uid).collection('units').doc();
+        final unit = Unit(
+          id: unitRef.id,
+          courseId: course.id,
+          name: unitData['name'],
+          index: unitData['index'],
+        );
+        batch.set(unitRef, unit.toMap());
 
-          if (unitData['topics'] != null) {
-            for (var topicData in unitData['topics']) {
-              final topic = Topic()..name = topicData['name'];
-              await isar.topics.put(topic);
-              unit.topics.add(topic);
+        if (unitData['topics'] != null) {
+          for (var topicData in unitData['topics']) {
+            final topicRef = firestore.collection('users').doc(uid).collection('topics').doc();
+            final topic = Topic(
+              id: topicRef.id,
+              unitId: unit.id,
+              name: topicData['name'] ?? '',
+            );
+            batch.set(topicRef, topic.toMap());
 
-              if (topicData['questions'] != null) {
-                for (var qData in topicData['questions']) {
-                  final question = Question()
-                    ..title = qData['title']
-                    ..notes = qData['notes']
-                    ..difficulty = qData['confidenceScore'] ?? 3
-                    ..createdAt = DateTime.now();
-                  
-                  await isar.questions.put(question);
-                  topic.questions.add(question);
-                  question.unitLink.value = unit;
-                  await question.unitLink.save();
-                }
+            if (topicData['questions'] != null) {
+              for (var qData in topicData['questions']) {
+                final qRef = firestore.collection('users').doc(uid).collection('questions').doc();
+                final question = Question(
+                  id: qRef.id,
+                  unitId: unit.id,
+                  courseId: course.id,
+                  title: qData['title'] ?? '',
+                  notes: qData['notes'],
+                  difficulty: qData['confidenceScore'] ?? 3,
+                  createdAt: DateTime.now(),
+                );
+                batch.set(qRef, question.toMap());
               }
-              await unit.topics.save();
             }
           }
         }
       }
-      await course.units.save();
-    });
+    }
+    await batch.commit();
   }
 }
 
 @riverpod
-Future<ImportRepository> importRepository(ImportRepositoryRef ref) async {
-  final isar = await ref.watch(isarProvider.future);
-  return ImportRepository(isar);
+ImportRepository importRepository(ImportRepositoryRef ref) {
+  final fs = ref.watch(firestoreProvider);
+  final auth = ref.watch(firebaseAuthProvider);
+  return ImportRepository(fs, auth);
 }

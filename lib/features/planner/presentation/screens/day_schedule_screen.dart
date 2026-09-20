@@ -7,8 +7,11 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/gestures.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../core/database/isar_provider.dart';
-import 'package:isar/isar.dart';
+import '../../data/repositories/planner_repository.dart';
+import '../../../course/data/repositories/question_repository.dart';
+import '../../../course/data/repositories/course_repository.dart';
+
+
 import '../../domain/models/planner_event.dart';
 import '../../../course/domain/models/course.dart';
 import '../../../course/domain/models/unit.dart';
@@ -32,7 +35,7 @@ class _DayScheduleScreenState extends ConsumerState<DayScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     final date = ref.watch(selectedDateProvider);
-    final isarAsync = ref.watch(isarProvider);
+    final plannerRepo = ref.watch(plannerRepositoryProvider);
     final bool isToday = date.year == DateTime.now().year &&
         date.month == DateTime.now().month &&
         date.day == DateTime.now().day;
@@ -77,48 +80,41 @@ class _DayScheduleScreenState extends ConsumerState<DayScheduleScreen> {
           child: Container(color: const Color(0xFF1A1A28), height: 1),
         ),
         actions: [
-          isarAsync.when(
-            data: (isar) => IconButton(
-              icon: const Icon(Icons.refresh, color: AppTheme.textSecondary, size: 20),
-              onPressed: () async {
-                final events = await isar.plannerEvents.where().findAll();
-                final dayEvents = events.where((e) => e.startTime.year == date.year && e.startTime.month == date.month && e.startTime.day == date.day).toList();
-                await isar.writeTxn(() async {
-                  for (var e in dayEvents) {
-                    await isar.plannerEvents.delete(e.id);
-                  }
-                });
-              },
-            ),
-            loading: () => const SizedBox(),
-            error: (_, __) => const SizedBox(),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: AppTheme.textSecondary, size: 20),
+            onPressed: () async {
+              final events = await plannerRepo.getAllEvents();
+              final dayEvents = events.where((e) => e.startTime.year == date.year && e.startTime.month == date.month && e.startTime.day == date.day).toList();
+              for (var e in dayEvents) {
+                await plannerRepo.deleteEvent(e.id);
+              }
+            },
           )
         ],
       ),
 
       // ── Body ─────────────────────────────────────────────────────────
-      body: isarAsync.when(
-        data: (isar) => StreamBuilder<void>(
-          stream: isar.plannerEvents.watchLazy(fireImmediately: true),
-          builder: (_, __) => FutureBuilder<List<PlannerEvent>>(
-            future: isar.plannerEvents.where().findAll(),
-            builder: (ctx, snapshot) {
-              final allEvents = snapshot.data ?? [];
-              final events = allEvents
-                  .where((e) =>
-                      e.startTime.year == date.year &&
-                      e.startTime.month == date.month &&
-                      e.startTime.day == date.day &&
-                      !e.title.startsWith('EXAM:') &&
-                      e.colorHex != const Color(0xFFF28B82).value.toRadixString(16))
-                  .toList();
+      body: StreamBuilder<List<PlannerEvent>>(
+        stream: plannerRepo.watchAllEvents(),
+        builder: (ctx, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          final allEvents = snapshot.data ?? [];
+          final events = allEvents
+              .where((e) =>
+                  e.startTime.year == date.year &&
+                  e.startTime.month == date.month &&
+                  e.startTime.day == date.day &&
+                  !e.title.startsWith('EXAM:') &&
+                  e.colorHex != const Color(0xFFF28B82).toARGB32().toRadixString(16))
+              .toList();
 
-              return _ScheduleList(events: events, date: date, isar: isar);
-            },
-          ),
-        ),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, s) => Center(child: Text('Error: $e')),
+          return _ScheduleList(events: events, date: date);
+        },
       ),
     );
   }
@@ -131,8 +127,8 @@ class _DayScheduleScreenState extends ConsumerState<DayScheduleScreen> {
 class _ScheduleList extends ConsumerStatefulWidget {
   final List<PlannerEvent> events;
   final DateTime date;
-  final Isar isar;
-  const _ScheduleList({required this.events, required this.date, required this.isar});
+  
+  const _ScheduleList({required this.events, required this.date});
 
   @override
   ConsumerState<_ScheduleList> createState() => _ScheduleListState();
@@ -207,16 +203,12 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
         final newEnd = DateTime(widget.date.year, widget.date.month, widget.date.day, maxH);
         
         // Capture context state synchronously before the async gap!
-        final bool shouldPop = GoRouterState.of(context).uri.path == '/planner/day';
-        final bool canPop = Navigator.canPop(context);
 
         () async {
           try {
-            await widget.isar.writeTxn(() async {
-              reschedulingEvent.startTime = newStart;
-              reschedulingEvent.endTime = newEnd;
-              await widget.isar.plannerEvents.put(reschedulingEvent);
-            });
+            reschedulingEvent.startTime = newStart;
+            reschedulingEvent.endTime = newEnd;
+            await ref.read(plannerRepositoryProvider).updateEvent(reschedulingEvent);
           } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error rescheduling: $e')));
@@ -237,8 +229,7 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
         builder: (_) => _ScheduleWizard(
           startTime: DateTime(widget.date.year, widget.date.month, widget.date.day, minH),
           endTime: DateTime(widget.date.year, widget.date.month, widget.date.day, maxH),
-          isar: widget.isar,
-        ),
+        )
       );
     }
   }
@@ -289,7 +280,7 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
               hour: i,
               label: _timeLabel(i),
               events: hourEvents,
-              isar: widget.isar,
+              
               isSelected: isSelected,
               isSelectionTop: isTopSel,
               isSelectionBottom: isBotSel,
@@ -316,11 +307,11 @@ class _ScheduleListState extends ConsumerState<_ScheduleList> {
 //  AGENDA HOUR ROW — Expands natively
 // ══════════════════════════════════════════════════════════════
 
-class _AgendaHourRow extends StatelessWidget {
+class _AgendaHourRow extends ConsumerWidget {
   final int hour;
   final String label;
   final List<PlannerEvent> events;
-  final Isar isar;
+  
   final bool isSelected;
   final bool isSelectionTop;
   final bool isSelectionBottom;
@@ -331,7 +322,7 @@ class _AgendaHourRow extends StatelessWidget {
     required this.hour,
     required this.label,
     required this.events,
-    required this.isar,
+    
     this.isSelected = false,
     this.isSelectionTop = false,
     this.isSelectionBottom = false,
@@ -339,14 +330,14 @@ class _AgendaHourRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     // Dynamic selection styling (Samsung Blue)
     final bgColor = isSelected 
-        ? AppTheme.samsungBlue.withOpacity(0.12)
+        ? AppTheme.samsungBlue.withValues(alpha: 0.12)
         : Colors.transparent;
         
     final borderColor = isSelected 
-        ? AppTheme.samsungBlue.withOpacity(0.4)
+        ? AppTheme.samsungBlue.withValues(alpha: 0.4)
         : const Color(0xFF1C1C1E);
 
     final borderRadius = BorderRadius.vertical(
@@ -434,7 +425,7 @@ class _AgendaHourRow extends StatelessWidget {
                             padding: EdgeInsets.only(bottom: isLastSegment ? 6.0 : 0.0),
                             child: FutureBuilder<List<Question?>>(
                               future: e.questionIds != null && e.questionIds!.isNotEmpty
-                                  ? isar.questions.getAll(e.questionIds!)
+                                  ? Future.wait(e.questionIds!.map((id) => ref.read(questionRepositoryProvider).firestore.collection('users').doc(ref.read(questionRepositoryProvider).uid).collection('questions').doc(id).get().then((doc) => doc.exists ? Question.fromMap(doc.data()!, doc.id) : null)))
                                   : Future.value([]),
                               builder: (_, snap) {
                                 final qs = snap.data?.whereType<Question>().toList() ?? [];
@@ -465,7 +456,7 @@ class _AgendaHourRow extends StatelessWidget {
                                       context: context,
                                       isScrollControlled: true,
                                       backgroundColor: Colors.transparent,
-                                      builder: (_) => _EventDetailSheet(event: e, isar: isar),
+                                      builder: (_) => _EventDetailSheet(event: e),
                                     );
                                   },
                                   onLongPress: () {
@@ -476,9 +467,9 @@ class _AgendaHourRow extends StatelessWidget {
                                       backgroundColor: Colors.transparent,
                                       builder: (_) => TaskActionSheet(
                                         event: e, 
-                                        isar: isar,
+                                        
                                         currentPath: GoRouterState.of(context).uri.path,
-                                      ),
+                                      )
                                     );
                                   },
                                 );
@@ -530,9 +521,9 @@ class _EventCard extends StatelessWidget {
     final bool isMerged = isContinuation || !isLastSegment;
 
     double minH = 44;
-    if (!isContinuation && !isLastSegment) minH = 50; // First hour (padding bottom 0)
-    else if (isContinuation && isLastSegment) minH = 50; // Last hour (padding top 0)
-    else if (isContinuation && !isLastSegment) minH = 56; // Middle hour (padding top 0, bottom 0)
+    if (!isContinuation && !isLastSegment) { minH = 50; } // First hour (padding bottom 0)
+    else if (isContinuation && isLastSegment) { minH = 50; } // Last hour (padding top 0)
+    else if (isContinuation && !isLastSegment) { minH = 56; } // Middle hour (padding top 0, bottom 0)
 
     return Transform.translate(
       offset: Offset(0, isContinuation ? -0.5 : 0),
@@ -633,7 +624,7 @@ class _TaskLine extends StatelessWidget {
               height: 12,
               margin: const EdgeInsets.only(right: 10, top: 4),
               decoration: BoxDecoration(
-                color: done ? AppTheme.completedColor.withOpacity(0.2) : Colors.transparent,
+                color: done ? AppTheme.completedColor.withValues(alpha: 0.2) : Colors.transparent,
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: done ? AppTheme.completedColor : const Color(0xFF5C5C60),
@@ -666,13 +657,13 @@ class _TaskLine extends StatelessWidget {
 //  EVENT DETAIL SHEET
 // ══════════════════════════════════════════════════════════════
 
-class _EventDetailSheet extends StatelessWidget {
+class _EventDetailSheet extends ConsumerWidget {
   final PlannerEvent event;
-  final Isar isar;
-  const _EventDetailSheet({required this.event, required this.isar});
+  
+  const _EventDetailSheet({required this.event});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       padding: EdgeInsets.only(
         left: 24,
@@ -717,14 +708,13 @@ class _EventDetailSheet extends StatelessWidget {
               ),
               GestureDetector(
                 onTap: () async {
-                  await isar.writeTxn(
-                      () async => isar.plannerEvents.delete(event.id));
+                  await ref.read(plannerRepositoryProvider).deleteEvent(event.id);
                   if (context.mounted) Navigator.pop(context);
                 },
                 child: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppTheme.urgentColor.withOpacity(0.1),
+                    color: AppTheme.urgentColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(Icons.delete_outline,
@@ -747,7 +737,7 @@ class _EventDetailSheet extends StatelessWidget {
           const SizedBox(height: 20),
           if (event.questionIds != null && event.questionIds!.isNotEmpty)
             FutureBuilder<List<Question?>>(
-              future: isar.questions.getAll(event.questionIds!),
+              future: Future.wait(event.questionIds!.map((id) => ref.read(questionRepositoryProvider).firestore.collection('users').doc(ref.read(questionRepositoryProvider).uid).collection('questions').doc(id).get().then((doc) => Question.fromMap(doc.data()!, doc.id)))),
               builder: (_, snap) {
                 final qs = snap.data?.whereType<Question>().toList() ?? [];
                 if (qs.isEmpty) return const SizedBox.shrink();
@@ -791,7 +781,7 @@ class _DetailTaskRow extends StatelessWidget {
             height: 18,
             decoration: BoxDecoration(
               color: done
-                  ? AppTheme.completedColor.withOpacity(0.15)
+                  ? AppTheme.completedColor.withValues(alpha: 0.15)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(5),
               border: Border.all(
@@ -824,21 +814,21 @@ class _DetailTaskRow extends StatelessWidget {
 //  SCHEDULE WIZARD — 3-step bottom sheet
 // ══════════════════════════════════════════════════════════════
 
-class _ScheduleWizard extends StatefulWidget {
+class _ScheduleWizard extends ConsumerStatefulWidget {
   final DateTime startTime, endTime;
-  final Isar isar;
+  
   const _ScheduleWizard(
-      {required this.startTime, required this.endTime, required this.isar});
+      {required this.startTime, required this.endTime});
 
   @override
-  State<_ScheduleWizard> createState() => _ScheduleWizardState();
+  ConsumerState<_ScheduleWizard> createState() => _ScheduleWizardState();
 }
 
-class _ScheduleWizardState extends State<_ScheduleWizard> {
+class _ScheduleWizardState extends ConsumerState<_ScheduleWizard> {
   int _step = 0;
   Course? _course;
   Unit? _unit;
-  List<int> _selectedIds = [];
+  final List<String> _selectedIds = [];
   List<Course> _courses = [];
   List<Unit> _units = [];
   List<Question> _questions = [];
@@ -852,16 +842,18 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
 
   Future<void> _loadCourses() async {
     setState(() => _loading = true);
-    _courses = await widget.isar.courses.where().findAll();
+    _courses = await ref.read(courseRepositoryProvider).getAllCourses();
     setState(() => _loading = false);
   }
 
   Future<void> _pickCourse(Course c) async {
     setState(() => _loading = true);
-    await c.units.load();
+    final firestore = ref.read(courseRepositoryProvider).firestore;
+    final unitsSnap = await firestore.collection('users').doc(ref.read(courseRepositoryProvider).uid).collection('units').where('courseId', isEqualTo: c.id).get();
+    final units = unitsSnap.docs.map((d) => Unit.fromMap(d.data(), d.id)).toList();
     setState(() {
       _course = c;
-      _units = c.units.toList();
+      _units = units;
       _step = 1;
       _loading = false;
     });
@@ -869,11 +861,7 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
 
   Future<void> _pickUnit(Unit u) async {
     setState(() => _loading = true);
-    _questions = await widget.isar.questions
-        .where()
-        .filter()
-        .unitIdEqualTo(u.id)
-        .findAll();
+    _questions = await ref.read(questionRepositoryProvider).getQuestionsForUnit(u.id);
     setState(() {
       _unit = u;
       _step = 2;
@@ -885,7 +873,11 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
     if (_course == null) return;
     
     if (_selectedIds.isNotEmpty) {
-      List<Question> selectedQuestions = await widget.isar.questions.getAll(_selectedIds).then((list) => list.whereType<Question>().toList());
+      List<Question> selectedQuestions = [];
+      for (var id in _selectedIds) {
+        final doc = await ref.read(questionRepositoryProvider).firestore.collection('users').doc(ref.read(questionRepositoryProvider).uid).collection('questions').doc(id).get();
+        if (doc.exists) selectedQuestions.add(Question.fromMap(doc.data()!, doc.id));
+      }
       final completedQuestions = selectedQuestions.where((q) => q.status == QuestionStatus.completed).toList();
       
       if (completedQuestions.isNotEmpty) {
@@ -954,22 +946,20 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
         if (shouldRevise == null || !shouldRevise) return; // User aborted
 
         // If Revise, update their status to revisionNeeded
-        await widget.isar.writeTxn(() async {
           for (var q in completedQuestions) {
-            q.status = QuestionStatus.revisionNeeded;
-            await widget.isar.questions.put(q);
+            await ref.read(questionRepositoryProvider).updateStatus(q.id, QuestionStatus.revisionNeeded);
           }
-        });
       }
     }
 
-    await widget.isar.writeTxn(() async {
       if (_selectedIds.isEmpty) {
-        final e = PlannerEvent()
-          ..title = _course!.name
-          ..startTime = widget.startTime
-          ..endTime = widget.endTime;
-        await widget.isar.plannerEvents.put(e);
+        final e = PlannerEvent(
+          id: '',
+          title: _course!.name,
+          startTime: widget.startTime,
+          endTime: widget.endTime,
+        );
+        await ref.read(plannerRepositoryProvider).addEvent(e);
       } else {
         int durationInHours = widget.endTime.difference(widget.startTime).inHours;
         
@@ -984,56 +974,53 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
               final chunkStart = widget.startTime.add(Duration(hours: i));
               final chunkEnd = widget.startTime.add(Duration(hours: i + 1));
               
-              final existingEvents = await widget.isar.plannerEvents
-                  .filter()
-                  .startTimeEqualTo(chunkStart)
-                  .titleEqualTo(_course!.name)
-                  .findAll();
+              final existingSnap = await ref.read(plannerRepositoryProvider).firestore.collection('users').doc(ref.read(plannerRepositoryProvider).uid).collection('plannerEvents').where('startTime', isEqualTo: chunkStart.toIso8601String()).where('title', isEqualTo: _course!.name).get();
+              final existingEvents = existingSnap.docs.map((d) => PlannerEvent.fromMap(d.data(), d.id)).toList();
                   
               if (existingEvents.isNotEmpty) {
                 final existing = existingEvents.first;
                 if (existing.endTime.isBefore(chunkEnd)) existing.endTime = chunkEnd; 
                 existing.questionIds = [...(existing.questionIds ?? []), ..._selectedIds.sublist(index, index + count)];
-                await widget.isar.plannerEvents.put(existing);
+                await ref.read(plannerRepositoryProvider).updateEvent(existing);
               } else {
-                final e = PlannerEvent()
-                  ..title = _course!.name
-                  ..startTime = chunkStart
-                  ..endTime = chunkEnd
-                  ..colorHex = _course!.colorTag
-                  ..questionIds = _selectedIds.sublist(index, index + count);
-                await widget.isar.plannerEvents.put(e);
+                final e = PlannerEvent(
+                  id: '',
+                  title: _course!.name,
+                  startTime: chunkStart,
+                  endTime: chunkEnd,
+                  colorHex: _course!.colorTag,
+                  questionIds: _selectedIds.sublist(index, index + count),
+                );
+                await ref.read(plannerRepositoryProvider).addEvent(e);
               }
               index += count;
             }
           }
         } else {
           // ONE single event spanning the selected duration (shared tab).
-          final existingEvents = await widget.isar.plannerEvents
-              .filter()
-              .startTimeEqualTo(widget.startTime)
-              .titleEqualTo(_course!.name)
-              .findAll();
+          final existingSnap = await ref.read(plannerRepositoryProvider).firestore.collection('users').doc(ref.read(plannerRepositoryProvider).uid).collection('plannerEvents').where('startTime', isEqualTo: widget.startTime.toIso8601String()).where('title', isEqualTo: _course!.name).get();
+          final existingEvents = existingSnap.docs.map((d) => PlannerEvent.fromMap(d.data(), d.id)).toList();
               
           if (existingEvents.isNotEmpty) {
             final existing = existingEvents.first;
             existing.endTime = widget.endTime; // Extend duration
             existing.questionIds = [...(existing.questionIds ?? []), ..._selectedIds];
-            await widget.isar.plannerEvents.put(existing);
+            await ref.read(plannerRepositoryProvider).updateEvent(existing);
           } else {
-            final e = PlannerEvent()
-              ..title = _course!.name
-              ..startTime = widget.startTime
-              ..endTime = widget.endTime
-              ..colorHex = _course!.colorTag
-              ..questionIds = _selectedIds;
-            await widget.isar.plannerEvents.put(e);
+            final e = PlannerEvent(
+              id: '',
+              title: _course!.name,
+              startTime: widget.startTime,
+              endTime: widget.endTime,
+              colorHex: _course!.colorTag,
+              questionIds: _selectedIds,
+            );
+            await ref.read(plannerRepositoryProvider).addEvent(e);
           }
         }
       }
-    });
 
-    if (mounted) Navigator.pop(context);
+    if (mounted) { Navigator.pop(context); }
   }
 
   @override
@@ -1176,7 +1163,7 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
                     color: _selectedIds.isEmpty
-                        ? Colors.white.withOpacity(0.06)
+                        ? Colors.white.withValues(alpha: 0.06)
                         : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
@@ -1272,10 +1259,10 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Container(
             decoration: BoxDecoration(
-              color: sel ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.02),
+              color: sel ? Colors.white.withValues(alpha: 0.08) : Colors.white.withValues(alpha: 0.02),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: sel ? Colors.white30 : Colors.white.withOpacity(0.05),
+                color: sel ? Colors.white30 : Colors.white.withValues(alpha: 0.05),
                 width: 1.0,
               ),
             ),
@@ -1318,7 +1305,7 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
-                            color: sel ? Colors.white : AppTheme.textPrimary.withOpacity(0.8),
+                            color: sel ? Colors.white : AppTheme.textPrimary.withValues(alpha: 0.8),
                             height: 1.3,
                           ),
                         ),
@@ -1328,9 +1315,9 @@ class _ScheduleWizardState extends State<_ScheduleWizard> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                           decoration: BoxDecoration(
-                            color: AppTheme.completedColor.withOpacity(0.12),
+                            color: AppTheme.completedColor.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: AppTheme.completedColor.withOpacity(0.3), width: 0.8),
+                            border: Border.all(color: AppTheme.completedColor.withValues(alpha: 0.3), width: 0.8),
                           ),
                           child: const Text(
                             'DONE',
@@ -1392,7 +1379,7 @@ class _WizardRow extends StatelessWidget {
           shadowColor: Colors.transparent,
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.white.withOpacity(0.05), width: 1.0)),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.05), width: 1.0)),
           child: InkWell(
             onTap: onTap,
             borderRadius: BorderRadius.circular(10),

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:isar/isar.dart';
+
 import '../../domain/models/unit.dart';
-import '../../domain/models/question.dart';
 import '../../data/repositories/course_repository.dart';
 
 class UnitDetailSheet extends ConsumerStatefulWidget {
@@ -64,7 +63,7 @@ class _UnitDetailSheetState extends ConsumerState<UnitDetailSheet> {
           const SizedBox(height: 16),
           Container(
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: Colors.white.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: Colors.white24),
             ),
@@ -91,7 +90,7 @@ class _UnitDetailSheetState extends ConsumerState<UnitDetailSheet> {
                     decoration: BoxDecoration(
                       color: Colors.transparent,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFF28B82).withOpacity(0.5)),
+                      border: Border.all(color: const Color(0xFFF28B82).withValues(alpha: 0.5)),
                     ),
                     child: const Center(
                       child: Text('DELETE', style: TextStyle(color: Color(0xFFF28B82), fontSize: 14, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
@@ -125,24 +124,15 @@ class _UnitDetailSheetState extends ConsumerState<UnitDetailSheet> {
 
   void _save() async {
     if (_nameController.text.isEmpty) return;
-    final repo = await ref.read(courseRepositoryProvider.future);
-    await repo.isar.writeTxn(() async {
-      unit.name = _nameController.text;
-      await repo.isar.units.put(unit);
-    });
+    final repo = ref.read(courseRepositoryProvider);
+    unit.name = _nameController.text;
+    await repo.updateUnit(unit);
     if (mounted) Navigator.pop(context);
   }
 
   void _delete() async {
-    final repo = await ref.read(courseRepositoryProvider.future);
-    await repo.isar.writeTxn(() async {
-      await repo.isar.units.delete(unit.id);
-      // Optional: Delete associated questions
-      final qs = await repo.isar.questions.where().filter().unitIdEqualTo(unit.id).findAll();
-      for (var q in qs) {
-        await repo.isar.questions.delete(q.id);
-      }
-    });
+    final repo = ref.read(courseRepositoryProvider);
+    await repo.deleteUnit(unit.id);
     if (mounted) Navigator.pop(context);
   }
 }

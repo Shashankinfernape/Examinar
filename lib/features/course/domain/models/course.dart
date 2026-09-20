@@ -1,19 +1,34 @@
-import 'package:isar/isar.dart';
-import 'unit.dart';
-
-part 'course.g.dart';
-
-@collection
 class Course {
-  Id id = Isar.autoIncrement;
-
-  late String name;
-  
+  String id;
+  String name;
   DateTime? examDate;
-  
   String? colorTag;
+  String? examStrategy;
 
-  String? examStrategy; // New field for AI-generated strategy
+  Course({
+    required this.id,
+    required this.name,
+    this.examDate,
+    this.colorTag,
+    this.examStrategy,
+  });
 
-  final units = IsarLinks<Unit>();
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'examDate': examDate?.toIso8601String(),
+      'colorTag': colorTag,
+      'examStrategy': examStrategy,
+    };
+  }
+
+  factory Course.fromMap(Map<String, dynamic> map, String docId) {
+    return Course(
+      id: docId,
+      name: map['name'] ?? '',
+      examDate: map['examDate'] != null ? DateTime.parse(map['examDate']) : null,
+      colorTag: map['colorTag'],
+      examStrategy: map['examStrategy'],
+    );
+  }
 }

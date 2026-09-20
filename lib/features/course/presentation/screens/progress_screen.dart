@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:isar/isar.dart';
-import '../../data/repositories/course_repository.dart';
+
 import '../../data/repositories/question_repository.dart';
 import '../../domain/models/question.dart';
 import 'package:exam_command_center/core/theme/app_theme.dart';
@@ -12,17 +11,22 @@ class ProgressScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final questionsAsync = ref.watch(questionRepositoryProvider);
+    final qRepo = ref.watch(questionRepositoryProvider);
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isTablet = screenWidth > 900;
     final double hPad = isTablet ? 32.0 : 16.0;
 
     return Scaffold(
       backgroundColor: AppTheme.black,
-      body: questionsAsync.when(
-        data: (qRepo) => StreamBuilder<List<Question>>(
-          stream: qRepo.isar.questions.where().watch(fireImmediately: true),
+      body: StreamBuilder<List<Question>>(
+          stream: qRepo.watchAllQuestions(),
           builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(child: Text('Error: ${snapshot.error}'));
+            }
             final allQuestions = snapshot.data ?? [];
             
             return CustomScrollView(
@@ -74,9 +78,6 @@ class ProgressScreen extends ConsumerWidget {
               ],
             );
           },
-        ),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, s) => Center(child: Text('Error: $e')),
       ),
     );
   }

@@ -1,19 +1,30 @@
-import 'package:isar/isar.dart';
-import 'topic.dart';
-import 'course.dart';
-
-part 'unit.g.dart';
-
-@collection
 class Unit {
-  Id id = Isar.autoIncrement;
+  String id;
+  String name;
+  int? index;
+  String courseId;
 
-  late String name;
+  Unit({
+    required this.id,
+    required this.name,
+    this.index,
+    required this.courseId,
+  });
 
-  int? index; // To keep track of Unit 1, 2, 3...
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'index': index,
+      'courseId': courseId,
+    };
+  }
 
-  @Backlink(to: 'units')
-  final course = IsarLink<Course>();
-
-  final topics = IsarLinks<Topic>();
+  factory Unit.fromMap(Map<String, dynamic> map, String docId) {
+    return Unit(
+      id: docId,
+      name: map['name'] ?? '',
+      index: map['index'],
+      courseId: map['courseId'] ?? '',
+    );
+  }
 }
