@@ -14,9 +14,18 @@ final authStateProvider = StreamProvider<User?>((ref) {
 
 class AuthService {
   final FirebaseAuth _auth;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
+  
+  bool _initialized = false;
 
   AuthService(this._auth);
+
+  Future<void> _ensureInitialized() async {
+    if (!_initialized) {
+      await _googleSignIn.initialize();
+      _initialized = true;
+    }
+  }
 
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
@@ -42,20 +51,21 @@ class AuthService {
         return await _auth.signInWithPopup(provider);
       } else if (Platform.isAndroid || Platform.isIOS) {
         // Android/iOS: Use official google_sign_in package
+        await _ensureInitialized();
         
         // Trigger the authentication flow
-        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+        final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
         
-        if (googleUser == null) {
-          return null; // User canceled
-        }
-
         // Obtain the auth details from the request
-        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+        final GoogleSignInAuthorizationClient authClient = googleUser.authorizationClient;
+
+        GoogleSignInClientAuthorization? clientAuth = await authClient.authorizationForScopes([]);
+        clientAuth ??= await authClient.authorizeScopes([]);
 
         // Create a new credential
         final AuthCredential credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
+          accessToken: clientAuth.accessToken,
           idToken: googleAuth.idToken,
         );
         return await _auth.signInWithCredential(credential);
@@ -76,6 +86,7 @@ class AuthService {
         await _auth.signOut();
       } else {
         // Mobile/Web: sign out of both GoogleSignIn and Firebase Auth
+        await _ensureInitialized();
         await _googleSignIn.signOut();
         await _auth.signOut();
       }
