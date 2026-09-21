@@ -41,21 +41,21 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyA_zBpkD6qLK8olO98OKnwg66sm1G36BxI',
-    appId: '1:217409476638:web:b8624687484d0f37ff360f',
-    messagingSenderId: '217409476638',
-    projectId: 'examinar-1b919',
-    authDomain: 'examinar-1b919.firebaseapp.com',
-    storageBucket: 'examinar-1b919.firebasestorage.app',
-    measurementId: 'G-NDTQZ8SC0B',
+    apiKey: 'AIzaSyBqWA3EtgPlxyZv25aibWzCcz_eBzsJ9NA',
+    appId: '1:600460799199:web:1c2eb2afa558f0855f0d6a',
+    messagingSenderId: '600460799199',
+    projectId: 'examinar-ad566',
+    authDomain: 'examinar-ad566.firebaseapp.com',
+    storageBucket: 'examinar-ad566.firebasestorage.app',
+    measurementId: 'G-VQ3018LSDW',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDQ2S4PO9h9So7lLGeKhhlJ8LWhH7cJPwY',
-    appId: '1:217409476638:android:45cacfec7c8b2834ff360f',
-    messagingSenderId: '217409476638',
-    projectId: 'examinar-1b919',
-    storageBucket: 'examinar-1b919.firebasestorage.app',
+    apiKey: 'AIzaSyBVxmZeP1BX_nOUzenBBGyooC2HvpXWqmA',
+    appId: '1:600460799199:android:6a116210d1c7cf665f0d6a',
+    messagingSenderId: '600460799199',
+    projectId: 'examinar-ad566',
+    storageBucket: 'examinar-ad566.firebasestorage.app',
   );
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyC4681s1HuI1MNGHCB2aCtpQxm_MvCA6uQ',
