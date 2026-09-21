@@ -58,14 +58,9 @@ class AuthService {
         
         // Obtain the auth details from the request
         final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-        final GoogleSignInAuthorizationClient authClient = googleUser.authorizationClient;
 
-        GoogleSignInClientAuthorization? clientAuth = await authClient.authorizationForScopes([]);
-        clientAuth ??= await authClient.authorizeScopes([]);
-
-        // Create a new credential
+        // Create a new credential using ONLY the idToken
         final AuthCredential credential = GoogleAuthProvider.credential(
-          accessToken: clientAuth.accessToken,
           idToken: googleAuth.idToken,
         );
         return await _auth.signInWithCredential(credential);
