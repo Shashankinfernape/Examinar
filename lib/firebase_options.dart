@@ -75,12 +75,12 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyA_zBpkD6qLK8olO98OKnwg66sm1G36BxI',
-    appId: '1:217409476638:web:31dbc9f60136765aff360f',
-    messagingSenderId: '217409476638',
-    projectId: 'examinar-1b919',
-    authDomain: 'examinar-1b919.firebaseapp.com',
-    storageBucket: 'examinar-1b919.firebasestorage.app',
-    measurementId: 'G-CQB3W8SNFR',
+    apiKey: 'AIzaSyBqWA3EtgPlxyZv25aibWzCcz_eBzsJ9NA',
+    appId: '1:600460799199:web:1c2eb2afa558f0855f0d6a',
+    messagingSenderId: '600460799199',
+    projectId: 'examinar-ad566',
+    authDomain: 'examinar-ad566.firebaseapp.com',
+    storageBucket: 'examinar-ad566.firebasestorage.app',
+    measurementId: 'G-VQ3018LSDW',
   );
 }

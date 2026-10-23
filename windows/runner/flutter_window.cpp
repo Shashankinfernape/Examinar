@@ -28,6 +28,35 @@ bool FlutterWindow::OnCreate() {
   HWND viewHwnd = flutter_controller_->view()->GetNativeWindow();
   SetChildContent(viewHwnd);
 
+  window_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "examinar/window",
+      &flutter::StandardMethodCodec::GetInstance());
+
+  window_channel_->SetMethodCallHandler([hwnd = this->GetHandle()](const auto& call, auto result) {
+    if (call.method_name() == "bringToFront") {
+      HWND foregroundHwnd = ::GetForegroundWindow();
+      DWORD foregroundThreadId = ::GetWindowThreadProcessId(foregroundHwnd, NULL);
+      DWORD currentThreadId = ::GetCurrentThreadId();
+      if (foregroundThreadId != currentThreadId) {
+        ::AttachThreadInput(currentThreadId, foregroundThreadId, TRUE);
+      }
+      if (::IsIconic(hwnd)) {
+        ::ShowWindow(hwnd, SW_RESTORE);
+      } else {
+        ::ShowWindow(hwnd, SW_SHOW);
+      }
+      ::SetForegroundWindow(hwnd);
+      ::BringWindowToTop(hwnd);
+      if (foregroundThreadId != currentThreadId) {
+        ::AttachThreadInput(currentThreadId, foregroundThreadId, FALSE);
+      }
+      result->Success();
+    } else {
+      result->NotImplemented();
+    }
+  });
+
+
   // Allow drag and drop across privilege levels (e.g. from non-admin Explorer to admin process)
   HWND hwnd = GetHandle();
   ChangeWindowMessageFilterEx(hwnd, WM_DROPFILES, MSGFLT_ALLOW, nullptr);
@@ -52,6 +81,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  window_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
