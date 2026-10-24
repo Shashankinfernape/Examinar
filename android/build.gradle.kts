@@ -21,6 +21,16 @@ subprojects {
 }
 
 subprojects {
+    configurations.all {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "org.jetbrains.kotlin") {
+                useVersion("2.1.0")
+            }
+        }
+    }
+}
+
+subprojects {
     val project = this
     val fixNamespace = {
         val android = project.extensions.findByName("android")
@@ -55,4 +65,22 @@ subprojects {
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
+}
+
+
+subprojects {
+    tasks.configureEach {
+        if (this.javaClass.name.contains("KotlinCompile")) {
+            try {
+                val kotlinOptions = this.javaClass.getMethod("getKotlinOptions").invoke(this)
+                val getFreeArgs = kotlinOptions.javaClass.getMethod("getFreeCompilerArgs")
+                val setFreeArgs = kotlinOptions.javaClass.getMethod("setFreeCompilerArgs", List::class.java)
+                @Suppress("UNCHECKED_CAST")
+                val current = getFreeArgs.invoke(kotlinOptions) as? List<String> ?: emptyList()
+                if (!current.contains("-Xskip-metadata-version-check")) {
+                    setFreeArgs.invoke(kotlinOptions, current + "-Xskip-metadata-version-check")
+                }
+            } catch (e: Exception) {}
+        }
+    }
 }
